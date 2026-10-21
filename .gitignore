@@ -1,0 +1,14 @@
+# build outputs
+*.apk
+*.jar
+module/classes/
+module/dex/
+module/unsigned.apk
+module/signed.apk
+module/app.jar
+module/eta.keystore
+
+# local files
+*.theme
+*.zip
+.DS_Store
