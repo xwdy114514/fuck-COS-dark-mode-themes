@@ -1,5 +1,10 @@
 # Make ColorOS Themes Great Again (MCTGA)
 
+> **项目守则**
+>
+> - 不要向任何主题作者催促、讨要适配本模块的深色主题，否则此项目停更删库。
+> - 严禁倒卖。倒卖我会挂到 GitHub，酷安上“光宗耀祖”。
+
 > **AI 生成声明**
 >
 > 本项目的模块源码（`module/`）、辅助工具（`tools/`）、README 与 Release 说明均由 AI 助手生成，所用模型为 `deepseek-flash`（Eta）。
