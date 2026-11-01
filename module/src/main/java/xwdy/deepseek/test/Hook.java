@@ -59,8 +59,45 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
             "com.android.stk",
     };
 
+    /** 深色适配只支持 ColorOS 17（oplusrom V17.x）。 */
+    private static Boolean sOs17;
+
+    private static boolean isOplus17() {
+        if (sOs17 != null) return sOs17;
+        try {
+            String rom = (String) Class.forName("android.os.SystemProperties")
+                    .getMethod("get", String.class).invoke(null, "ro.build.version.oplusrom");
+            sOs17 = rom != null && rom.startsWith("V17");
+        } catch (Throwable t) {
+            sOs17 = false;
+        }
+        return sOs17;
+    }
+
     private static void log(String s) {
         XposedBridge.log("CosNightTheme: " + s);
+    }
+
+    private static Boolean sDebug;
+
+    private static boolean debugOn() {
+        if (sDebug != null) return sDebug;
+        try {
+            Object at = Class.forName("android.app.ActivityThread")
+                    .getMethod("currentActivityThread").invoke(null);
+            Object ctx = at.getClass().getMethod("getSystemContext").invoke(at);
+            android.content.ContentResolver cr = (android.content.ContentResolver)
+                    ctx.getClass().getMethod("getContentResolver").invoke(ctx);
+            sDebug = android.provider.Settings.Global.getInt(cr, "mctga_debug", 0) != 0;
+        } catch (Throwable t) {
+            sDebug = false;
+        }
+        return sDebug;
+    }
+
+    /** 高频调试日志，默认关闭（settings put global mctga_debug 1 打开）。 */
+    private static void logv(String s) {
+        if (debugOn()) log(s);
     }
 
     private static boolean isNight() {
@@ -72,6 +109,101 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
             return (uiMode & 0x30) == 0x20;
         } catch (Throwable t) {
             return false;
+        }
+    }
+
+    /** 从 MCTGA 的 ContentProvider 取该包的主题 zip 到目标应用缓存；没有就返回 null。 */
+    private static String packBaseDir(String pkg) {
+        try {
+            Object app = Class.forName("android.app.ActivityThread")
+                    .getMethod("currentApplication").invoke(null);
+            if (app == null) return null;
+            android.content.Context ctx = (android.content.Context) app;
+            android.net.Uri u = android.net.Uri.parse(
+                    "content://xwdy.deepseek.test.packs/" + pkg);
+            long size = -1;
+            android.database.Cursor c = ctx.getContentResolver()
+                    .query(u, null, null, null, null);
+            if (c != null) {
+                try {
+                    if (c.moveToFirst()) size = c.getLong(0);
+                } finally {
+                    c.close();
+                }
+            }
+            if (size <= 0) return null;
+            java.io.File dir = new java.io.File(ctx.getCacheDir(), "mctga-packs");
+            if (!dir.isDirectory() && !dir.mkdirs()) return null;
+            java.io.File f = new java.io.File(dir, pkg);
+            if (!f.isFile() || f.length() != size) {
+                java.io.InputStream in = ctx.getContentResolver().openInputStream(u);
+                if (in == null) return null;
+                java.io.FileOutputStream out = new java.io.FileOutputStream(f);
+                byte[] b = new byte[65536];
+                int n;
+                while ((n = in.read(b)) > 0) out.write(b, 0, n);
+                out.close();
+                in.close();
+            }
+            return dir.getAbsolutePath() + "/";
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** 判断主题 zip 里有没有夜间资源；拿不到 ZipFile 时按“有”处理，保持原行为。 */
+    private static boolean zipHasNight(Object themeZip) {
+        try {
+            Object z = null;
+            Class<?> c = themeZip.getClass();
+            while (c != null && z == null) {
+                for (java.lang.reflect.Field f : c.getDeclaredFields()) {
+                    if (java.util.zip.ZipFile.class.isAssignableFrom(f.getType())) {
+                        f.setAccessible(true);
+                        z = f.get(themeZip);
+                        if (z != null) break;
+                    }
+                }
+                c = c.getSuperclass();
+            }
+            if (z == null) return true;
+            java.util.Enumeration<? extends java.util.zip.ZipEntry> e =
+                    ((java.util.zip.ZipFile) z).entries();
+            while (e.hasMoreElements()) {
+                if (e.nextElement().getName().contains("-night")) return true;
+            }
+            return false;
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
+    /** 判断资源名是不是顶栏类（appbar／toolbar／abl…）。 */
+    private static boolean isBarId(String ln) {
+        return ln.contains("appbar") || ln.contains("toolbar")
+                || ln.contains("header") || ln.contains("statusbar")
+                || ln.endsWith("/abl") || ln.contains("app_bar")
+                || ln.contains("action_bar") || ln.contains("title_bar");
+    }
+
+    /** 把 appbar / toolbar / header / statusbar 这类顶部条的背景清空，让插画透出来。 */
+    private static void clearBarViews(android.view.View v, int depth) {
+        if (v == null || depth > 24) return;
+        try {
+            int id = v.getId();
+            if (id != android.view.View.NO_ID) {
+                String n = v.getResources().getResourceName(id);
+                if (n != null) {
+                    String ln = n.toLowerCase();
+                    if (isBarId(ln)) v.setBackground(null);
+                }
+            }
+            if (v instanceof android.view.ViewGroup) {
+                android.view.ViewGroup g = (android.view.ViewGroup) v;
+                int c = g.getChildCount();
+                for (int i = 0; i < c; i++) clearBarViews(g.getChildAt(i), depth + 1);
+            }
+        } catch (Throwable ignored) {
         }
     }
 
@@ -118,7 +250,7 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
             Object has = XposedHelpers.callMethod(p.thisObject, "containsEntry", np);
             if (Boolean.TRUE.equals(has)) {
                 p.args[idx] = np;
-                log("night -> " + np);
+                logv("night -> " + np);
             }
         } catch (Throwable ignored) {
         }
@@ -142,7 +274,7 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
             Object has = XposedHelpers.callMethod(zip, "containsEntry", np);
             if (Boolean.TRUE.equals(has)) {
                 p.args[idx] = np;
-                log("stream night -> " + np);
+                logv("stream night -> " + np);
             }
         } catch (Throwable ignored) {
         }
@@ -193,12 +325,28 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
                         String ln = n.toLowerCase();
                         if (ln.contains("appbar") || ln.contains("toolbar") || ln.contains("header")) {
                             v.setBackground(null);
-                            log("cleared bg color on " + n);
+                            logv("cleared bg color on " + n);
                         }
                     } catch (Throwable ignored) {
                     }
                 }
             });
+            XC_MethodHook barBg = new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam p) {
+                    try {
+                        android.view.View v = (android.view.View) p.thisObject;
+                        int id = v.getId();
+                        if (id == android.view.View.NO_ID) return;
+                        String n = v.getResources().getResourceName(id);
+                        if (n != null && isBarId(n.toLowerCase())) p.setResult(null);
+                    } catch (Throwable ignored) {
+                    }
+                }
+            };
+            XposedBridge.hookAllMethods(android.view.View.class, "setBackground", barBg);
+            XposedBridge.hookAllMethods(android.view.View.class, "setBackgroundDrawable", barBg);
+            XposedBridge.hookAllMethods(android.view.View.class, "setBackgroundResource", barBg);
             XposedHelpers.findAndHookMethod("android.app.Activity", lp.classLoader, "onResume",
                     new XC_MethodHook() {
                         @Override
@@ -255,12 +403,13 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
                                                     if (now - sLastDeep > 300) {
                                                         sLastDeep = now;
                                                         n += clearBgCount(fDecor, isDeep(pkg) ? 40 : 10);
+                                                        clearBarViews(fDecor, 0);
                                                         fDecor.setBackground(loadBg(fDecor.getContext()));
                                                     }
                                                     int bid2 = fDecor.getContext().getResources()
                                                             .getIdentifier("blur_overlay", "id", pkg);
                                                     if (bid2 != 0) hideAllById(fDecor, bid2, 0);
-                                                    if (n > 0) log("layout re-clear x" + n + " pkg=" + pkg);
+                                                    if (n > 0) logv("layout re-clear x" + n + " pkg=" + pkg);
                                                 } catch (Throwable ignored) {
                                                 }
                                             }
@@ -289,7 +438,7 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
                                 Drawable d = loadBg(act);
                                 if (d != null) {
                                     decor.setBackground(d);
-                                    log("onCreate bg " + act.getComponentName().getClassName());
+                                    logv("onCreate bg " + act.getComponentName().getClassName());
                                 }
                             } catch (Throwable ignored) {
                             }
@@ -341,7 +490,7 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
                 } catch (Throwable t) {
                     sb.append(" bg=?");
                 }
-                log("V " + sb);
+                logv("V " + sb);
             }
         } catch (Throwable ignored) {
         }
@@ -460,10 +609,10 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
             int bid = decor.getContext().getResources().getIdentifier("blur_overlay", "id", pkg);
             if (bid != 0) {
                 if (hideAllById(decor, bid, 0)) log("hid blur_overlay");
-                else log("blur_overlay not found");
+                else logv("blur_overlay not found");
             }
             decor.setBackground(loadBg(decor.getContext()));
-            log("alarm fix pass dump=" + dump + " cleared=" + cleared);
+            logv("alarm fix pass dump=" + dump + " cleared=" + cleared);
             if (dump) {
                 sDumpLines = 0;
                 dumpTree(decor, 0);
@@ -487,6 +636,40 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
         }
     }
 
+    private static Boolean readAttachFlag() {
+        try {
+            Object at = XposedHelpers.callStaticMethod(
+                    XposedHelpers.findClass("android.app.ActivityThread", null),
+                    "currentActivityThread");
+            if (at == null) return null;
+            Object ctx = XposedHelpers.callMethod(at, "getSystemContext");
+            if (ctx == null) return null;
+            Object cr = XposedHelpers.callMethod(ctx, "getContentResolver");
+            if (cr == null) return null;
+            int v = android.provider.Settings.Global.getInt(
+                    (android.content.ContentResolver) cr, "mctga_dark_attach", 1);
+            return v != 0;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static boolean darkAttachEnabled() {
+        Boolean v = readAttachFlag();
+        if (v == null) {
+            try {
+                de.robv.android.xposed.XSharedPreferences p =
+                        new de.robv.android.xposed.XSharedPreferences("cfg");
+                p.reload();
+                v = p.getBoolean("attach_dark", true);
+            } catch (Throwable t) {
+                v = Boolean.TRUE;
+            }
+        }
+        log("dark attach = " + v);
+        return v;
+    }
+
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lp) {
         boolean hit = false;
@@ -495,6 +678,16 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
         }
         if (!hit) return;
 
+        // 深色适配是附加功能：界面关掉后不再挂任何 hook，进程完全走系统默认逻辑。
+        if (!darkAttachEnabled()) {
+            log("dark attach disabled, skip pkg=" + lp.packageName);
+            return;
+        }
+
+        if (!isOplus17()) {
+            log("skip: not ColorOS17 pkg=" + lp.packageName);
+            return;
+        }
         log("loaded pkg=" + lp.packageName);
 
         for (String hb : HOOK_BG) {
@@ -555,15 +748,28 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
                             try {
                                 Object zip = XposedHelpers.getObjectField(res, "mPackageZipFile");
                                 String pkg = (String) p.args[1];
-                                if (zip != null) return;
+                                String base = packBaseDir(pkg);
+                                if (base == null) {
+                                    if (zip != null) return;
+                                    base = "/data/theme/";
+                                }
                                 Object newZip = XposedHelpers.callStaticMethod(
                                         XposedHelpers.findClass("android.content.res.OplusThemeZipFile", lp.classLoader),
-                                        "getThemeZipFile", "/data/theme/", pkg, p.args[0]);
-                                if (newZip != null) {
+                                        "getThemeZipFile", base, pkg, p.args[0]);
+                                if (newZip == null && !"/data/theme/".equals(base)) {
+                                    newZip = XposedHelpers.callStaticMethod(
+                                            XposedHelpers.findClass(
+                                                    "android.content.res.OplusThemeZipFile",
+                                                    lp.classLoader),
+                                            "getThemeZipFile", "/data/theme/", pkg, p.args[0]);
+                                }
+                                if (newZip != null && !(isNight() && !zipHasNight(newZip))) {
                                     XposedHelpers.setObjectField(res, "mPackageZipFile", newZip);
                                     XposedHelpers.setBooleanField(res, "mHasValue", true);
                                     XposedHelpers.setBooleanField(res, "mHasDrawable", true);
                                     if ("com.android.settings".equals(pkg)) log("forced zip " + pkg);
+                                } else if (newZip != null) {
+                                    log("skip force(no night) " + pkg);
                                 }
                             } catch (Throwable t) {
                                 log("force fail " + t);
@@ -655,7 +861,7 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
                                     "notification_scrim_bg_mask_color", "color", "com.android.systemui")).intValue();
                             sBlurId = ((Integer) XposedHelpers.callMethod(res, "getIdentifier",
                                     "notification_material_blur_bg", "color", "com.android.systemui")).intValue();
-                            log("day color ids scrim=" + sScrimId + " blur=" + sBlurId);
+                            logv("day color ids scrim=" + sScrimId + " blur=" + sBlurId);
                         }
                         int id = ((Integer) p.args[0]).intValue();
                         if (id == 0) return;

@@ -1,134 +1,128 @@
-# Make ColorOS Themes Great Again (MCTGA)
+# MCTGA · ColorOS 主题增强（融合版）
 
-> **项目守则**
->
-> - 不要向任何主题作者催促、讨要适配本模块的深色主题，否则此项目停更删库。
-> - 严禁倒卖。倒卖我会挂到 GitHub，酷安上“光宗耀祖”。
+把两个项目合成一个 APK：
 
-> **AI 生成声明**
->
-> 本项目的模块源码（`module/`）、辅助工具（`tools/`）、README 与 Release 说明均由 AI 助手生成，所用模型为 `deepseek-flash`（Eta）。
-> 作者负责提出需求、在 ColorOS 17 真机上测试与发布，不对代码的完整性与安全性作额外保证；使用前请自行审阅代码。
-
-> **免责声明**
->
-> 本项目仅供个人学习、研究与技术交流使用，不提供任何形式的保证。
->
-> - 使用本模块需要 Root 与 LSPosed，可能修改系统主题行为，存在导致系统异常、主题丢失甚至无法开机的风险，**使用风险完全由使用者自行承担**。
-> - 本项目不包含、也不分发任何第三方主题包（`.theme`）、系统 APK 或反编译的系统代码。
-> - 修改系统主题可能违反设备厂商的用户协议，请自行评估并遵守当地法律法规。
-> - 作者不对因使用本项目造成的任何直接或间接损失负责。
-
-让 ColorOS 17 在深色模式下也能加载 `.theme` 主题（含主题内 `drawable-night` 资源）的 LSPosed 模块。
-
-## 背景
-
-ColorOS 的主题引擎在深色模式下会跳过主题资源：
-
-- `android.content.res.OplusBaseFile.rejectTheme()` 的夜间白名单只有 `icons`、`lockscreen`、`com.android.launcher`、`com.coloros.alarmclock`
-- `OplusThemeResourcesPackage.getThemeResources()` 在夜间不会把主题 zip 注入进程
-- 主题引擎应用主题时不会解压 `com.android.contacts` / `com.android.mms`，且不读取 `drawable-night-*` 目录
-
-## 已适配界面
-
-| 界面 | 包名 |
-|---|---|
-| 设置 | `com.android.settings` |
-| 通知栏 / 控制中心（SystemUI） | `com.android.systemui` |
-| 联系人 / 拨号 | `com.android.contacts` |
-| 信息 | `com.android.mms` |
-| 文件管理 | `com.coloros.filemanager` |
-| 时钟 | `com.coloros.alarmclock` |
-| 日历 | `com.coloros.calendar` |
-| 录音 | `com.coloros.soundrecorder` |
-| 相册 | `com.coloros.gallery3d` |
-| 视频 | `com.coloros.video` |
-| SIM 卡工具 | `com.android.stk` |
-| 数字健康 | `com.coloros.digitalwellbeing` |
-| 家庭守护 | `com.coloros.familyguard` |
-| 快捷指令 | `com.coloros.shortcuts` |
-| 云服务 | `com.heytap.cloud` |
-| 健康 | `com.heytap.health` |
-| 小布助手 | `com.heytap.speechassist` |
-| 主题商店 | `com.heytap.themestore` |
-| AI 记忆 | `com.oplus.aimemory` |
-| 使用技巧 | `com.oplus.tips` |
-
-> 全屏内容型应用（相机、游戏空间、钱包）背景基本看不到，主题主要影响其配色；不想要可以在 LSPosed 作用域里取消勾选。
-
-> **背景插画透出**：闹钟、录音、日历、文件管理、相册、家庭守护、健康、云服务、数字健康、小布助手、AI 记忆、使用技巧、快捷指令 这 13 个应用额外启用了窗口插画背景（见下方「功能」）。视频不再支持。
-
-## 功能
-
-- 夜间强制加载 `/data/theme/<包名>` 主题资源
-- 把 `res/drawable*` 请求重定向到 `res/drawable-night-xxhdpi/`
-- 移除设置首页 AppBar 三层背景（消除顶部黑块）
-- 日夜配色分离：日间把 SystemUI 的 `notification_scrim_bg_mask_color`、`notification_material_blur_bg` 改写为浅色，夜间沿用主题值
-- 深浅色切换时自动重建 SystemUI，避免主题 drawable 缓存导致磁贴一半白一半深灰
-- **背景插画透出**：对闹钟、录音、日历、文件管理、相册、家庭守护、健康、云服务、数字健康、小布助手、AI 记忆、使用技巧、快捷指令，在 Activity `onCreate` / `onResume` 时立刻把 DecorView 背景设为主题插画（日夜分别用 `bg_day.png` / `bg_night.png`），做到首帧就是插画、不会先黑一下
-  - 按 id 定点清掉顶层遮挡：`appBarLayout`、各标签页的 `world_clock_toolbar_include`、`layout_empty_container`，并把所有 `blur_overlay`（AppBarBlurOverlayView）设为 GONE
-  - 日历 / 文件管理 / 相册 / 使用技巧这类整页自绘不透明底色的应用使用深度清理（到第 40 层），并在布局变化时按 300ms 节流复清，滚动新建的条目也会一并处理
-  - 类名含 `editor` 的 Activity（相册编辑、扩图、设为壁纸、视频编辑等）自动跳过，避免编辑界面被透明化
-- 模块内提供配置界面：
-  - 选择 `.theme` 文件（通过 SAF，路径持久化）
-  - 一次性补齐主题内所有 `com.*` 包到 `/data/theme`（自动跳过 `_004`、`_007` 这类版本变体）
-  - 重启全部适配应用 + SystemUI
-
-## 原理（hook 点）
-
-| 类 | 方法 | 作用 |
+| 能力 | 来源 | 依赖 |
 |---|---|---|
-| `android.content.res.OplusThemeResourcesPackage` | `getThemeResources(IResourcesImplExt, String)` | 夜间补回主题 zip |
-| `android.content.res.OplusThemeZipFile` | `getInputStreamInner(int, String, MultiZipFile, boolean)`、`getInputStream(int, String)` | 路径重定向到 `drawable-night-xxhdpi` |
-| `com.oplus.settings.feature.homepage.OplusSettingsHomepageActivity` | `onCreate` / `onResume` | 清 AppBar 背景 |
-| `android.content.res.Resources` | `getColor(int)`、`getColor(int, Theme)` | 日间改写 SystemUI 遮罩色 |
-| `android.app.Activity` | `onCreate` / `onResume` | 立刻把 DecorView 背景设为插画（首帧生效） |
-| `android.view.View` | `setBackground` 后的定点清理（`appBarLayout` / `world_clock_toolbar_include` / `layout_empty_container`） | 去掉顶层不透明底色 |
-| `android.view.ViewTreeObserver` | `OnGlobalLayout` | 布局变化时节流复查，处理 ViewPager 后加载页面与列表新条目 |
-| `android.app.ActivityThread` | `handleConfigurationChanged` | 检测深浅切换并重建 SystemUI |
+| 深色模式下强制加载主题资源、13 个应用透出主题插画、SystemUI 配色修正 | MCTGA 0.2.1（LSPosed 模块） | LSPosed（Root） |
+| 安装 `.theme` 到 `/data/theme`、一键生效（重启适配应用 + SystemUI） | MCTGA 0.2.1 | Root |
+| 主题商店锁定 / 解锁（空文件替换 + `pm suspend`），挡住试用到期恢复 | ThemeLock 2.2-rc5 | Shizuku（shell 身份） |
+
+- 包名：`xwdy.deepseek.test`（沿用 MCTGA，LSPosed 作用域与 Root 授权无需重做）
+- 版本：`0.5.4-beta`（versionCode 96）
+
+> **警告：向 `/data/theme` 写入文件可能导致手机无法开机。** 本应用只在用户主动点
+> 「选择并安装 .theme」并确认风险后才会写，且会逐个 `unzip -t` 校验、先备份、
+> `.tmp` 原子替换，并提供「回滚上一次安装」。
+- 签名：`/data/local/tmp/cosnight/eta.keystore`（alias `eta`，口令 `etatata`），与 0.2.1 一致，可直接覆盖安装
+- 作用域仍是原来 20 个包，`Hook.java` 的逻辑与 0.2.1 完全相同，未改动
+
+## 目录
+
+```
+MCTGA/
+├── build.sh                 一键构建 → out/MCTGA-0.4.3.apk
+├── install.sh               复制到 /data/local/tmp 再 pm install
+├── out/                     当前构建 + 界面截图
+├── docs/融合说明.md          两项目如何拼在一起、身份/权限分工、界面与代码重构记录
+└── module/
+    ├── AndroidManifest.xml  LSPosed 元数据 + Shizuku provider + queries
+    ├── res/values/arrays.xml     xposed_scope（20 个包）
+    ├── assets/bg_day.png bg_night.png   插画底图（打包在 APK 根目录，Hook 用 classloader 读）
+    ├── dependencies/shizuku-api/       api/provider/aidl/shared 四个 jar
+    └── src/main/java/xwdy/deepseek/test/
+        ├── Hook.java         LSPosed 入口（0.2.1 逻辑 + 深色适配开关）
+        ├── MainActivity.java 控制台（分区布局 / 状态渲染 / 各动作）
+        ├── EnvCheck.java     深色适配环境检测（Root 缺失时报“无法确认”）
+        ├── ThemeEngine.java  锁定/解锁/冻结/解冻脚本 + 状态解析
+        ├── ShellRunner.java  有界远端命令执行
+        ├── ShizukuBridge.java Shizuku / Sui 通道
+        └── RootShell.java    su 通道（多路径尝试）
+```
 
 ## 构建
 
-需要：Termux + OpenJDK 17 + `aapt` + `d8` + `apksigner`，以及：
-
-- `android.jar`（android-35）
-- `XposedBridgeAPI-82.jar`
-
-```bash
-cd module
-./build.sh
+```sh
+sh /storage/emulated/0/MCTGA/build.sh
+sh /storage/emulated/0/MCTGA/install.sh     # 注意：不能直接 pm install /storage 下的 APK
 ```
 
-生成 `signed.apk`，安装后用 LSPosed 启用并勾选上表 20 个作用域。
+工具链：`/data/local/tmp/tc/prefix`（JDK21 + aapt2 + d8 + apksigner）、
+`/data/local/tmp/sdk/android-35/android.jar`、`/data/local/tmp/cosnight/XposedBridgeAPI-82.jar`。
 
-## 使用
+编译注意：android.jar 的 `LambdaMetafactory` 缺 `metafactory`，javac 必须用 `--release 8`
+（ThemeLock 的写法），不能用 `-bootclasspath android.jar`，否则 lambda 编译失败。
 
-1. 安装模块，在 LSPosed 中勾选 20 个作用域
-2. 打开模块 → 选择 `.theme` 文件（会自动把主题内所有包补齐到 `/data/theme`）
-3. 到主题商店应用主题
-4. 回到模块点“一键生效”
-5. 切换深浅色时 SystemUI 会短暂重建，属正常现象
+## 界面分区
 
-## 已知限制
+- **主题常驻（主功能）**：状态卡（系统 / Root / Shizuku / 商店 / Themes / 商店状态 / 权限通道 / Sui / 主题文件）、
+  安装 .theme（**仅 Root 可用时显示**）、锁定主题、解锁、解冻/冻结商店、文件管理、刷新状态
+  - 没有 Root 时：「安装 .theme」与「一键生效」隐藏，改为「打开文件管理导入 .theme」+ 说明
+    （导入主题只能用文件管理：文件管理 → 点 .theme → 免费试用，不用主题商店的导入入口）
+- **深色适配（附加功能）**：开关 + 环境检测结论 + 明细；下面是一键生效
 
-- 首次使用需在 KernelSU / Magisk 中给本模块 root 授权；未授权时点“一键生效”会提示“没有拿到 root 权限”，而不是误报主题未应用
-- 主题引擎不会自动解压 contacts/mms，重新应用主题后需要再点一次“补齐”（选定主题文件时自动执行）
-- 主题只有一份 `assets/colors.xml`，颜色的深浅分离依赖模块 hook；不启用模块时亮色下背景仍偏深
-- 深浅色切换后 SystemUI 会被强制重建（约闪一下），用于清掉主题 drawable 缓存
-- AppBar 顶部黑块在首次打开时可能闪现，切后台回来会消失
-- ColorOS 15 不兼容（hook 点基于 C17 的 oplus-framework.jar）
+环境检测（`EnvCheck.java`）用一次 root 探测给出四档结论：**可用 / 有限 / 待准备 / 不可用**
+（判据：Root、`pidof lspd`、`/data/theme` 里的主题包数量、主题包内 `drawable-night` 条目数）。
 
-## License
+开关状态存在 `Settings.Global` 的 `mctga_dark_attach`（0/1），Hook 启动时读取：
+关掉后 Hook 直接返回，不挂任何 hook；改完要对目标应用「一键生效」才生效。
 
-本项目采用 **GPL-3.0 + Commons Clause**：
+```sh
+su -c "settings put global mctga_dark_attach 0"   # 关闭深色适配
+su -c "settings put global mctga_dark_attach 1"   # 开启（默认）
+```
 
-- 基于本项目的修改/衍生作品必须继续开源（GPL-3.0 copyleft）
-- 不得销售本软件，或销售其价值主要来自本软件功能的产品/服务（Commons Clause）
+## 使用顺序
 
-完整条款见 `LICENSE` 文件。
+1. 主题商店导入并应用 `.theme`（文件管理 → `.theme` → 免费试用）
+2. 打开 MCTGA →「选择并安装 .theme」→ 自动补齐 `/data/theme`
+3. 「一键生效」重启适配应用与 SystemUI（深色模式下 Hook 才生效）
+4. 「锁定主题」挡住商店的试用到期恢复；换主题前先「解锁」
+5. 装/更新本 APK 后，也要对目标应用执行一次「一键生效」
 
-## Known Issues
+## 身份分工（重要）
 
-- 设置首页首次打开时顶部可能闪一下黑块，切后台再回来即恢复
-- 每次重新应用主题后，`com.android.contacts` / `com.android.mms` 需要重新点一次“补齐”
-- 切换深浅色会导致 SystemUI 重建，屏幕会短暂闪烁
+- 写 `/data/theme`、`am force-stop`、`killall systemui` → **Root**
+- 锁定 / 解锁商店（空文件替换）→ 需要能读写 `Android/data` 的身份：无线调试/ADB 启动的 **Shizuku**，或 Root
+- 解冻 / 冻结商店（`pm suspend` / `unsuspend` / `enable`）→ **Sui 或 Shizuku 的 shell 身份就够**
+- **Sui 会接管 `su`**：本机 Sui v13.5.4.3 下 app 进程里 `exec("su")` 报 ENOENT，Root 功能不可用；
+  这时界面会明说，不会假装执行
+- Shizuku 必须是**无线调试 / ADB** 启动；KernelSU 启动的是 ksu 身份，读不到 `Android/data`
+- 不要卸载主题商店：会触发主题基础服务 `.uninstall.ThemeReceiver` 恢复默认主题
+
+## 项目守则（发布必带）
+
+1. 不要向任何主题作者催促、讨要适配本模块的深色主题，否则停更删库。
+2. 严禁倒卖。
+
+## 已知限制（与上游源码一致）
+
+- 主题引擎不会自动解压 `com.android.contacts` / `com.android.mms`，每次重新应用主题后需要点一次「补齐主题资源（需 Root）」
+- 控制中心面板背景不是主题资源，只能显示系统模糊层
+- AppBar 顶部黑块首次打开时可能闪现，切后台回来会消失
+
+## 来源与许可
+
+- 深色适配部分源自 **fuck COS dark mod theme**（GPL-3.0 + Commons Clause），本工程沿用同一许可，完整条款见 `LICENSE`
+- 基于本项目的修改 / 衍生作品必须继续开源；不得销售本软件，或销售其价值主要来自本软件功能的产品 / 服务
+
+## 安装（发布版）
+
+1. 安装 `out/MCTGA-0.5.4-beta.apk`（需要 LSPosed，Android 12+）
+2. LSPosed 里启用模块，作用域按 `module/res/values/arrays.xml`（20 个包）
+3. 打开 MCTGA：授予 Root（补齐 / 重启用）或 Shizuku（锁定 / 解冻用）
+4. 文件管理里点 `.theme` → 免费试用（由主题商店写入）
+5. 回 MCTGA 点「补齐主题资源」：只写本应用数据目录，再由模块注入联系人 / 短信
+6. 换主题后需要重新点一次「补齐主题资源」
+
+## 构建（其他设备）
+
+```sh
+export TOOLCHAIN_PREFIX=/path/to/toolchain   # 需含 bin/aapt2、share/java/d8.jar、apksigner.jar、JDK
+export ANDROID_JAR=/path/to/android-35/android.jar
+export XPOSED_API=$PWD/tools/XposedBridgeAPI-82.jar
+export KEYSTORE=$PWD/tools/eta.keystore
+sh build.sh
+```
+
+产物：`out/MCTGA-0.5.4-beta.apk`。签名必须沿用 `tools/eta.keystore`，否则覆盖安装会失败。

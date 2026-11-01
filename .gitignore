@@ -1,14 +1,13 @@
 # build outputs
-*.apk
-*.jar
-module/classes/
-module/dex/
-module/unsigned.apk
-module/signed.apk
-module/app.jar
-module/eta.keystore
+out/build/
+*.idsig
+*.apk.idsig
 
-# local files
-*.theme
-*.zip
+# local toolchain / backups
+/data/
+*.keystore.bak
+
+# IDE
+.idea/
+*.iml
 .DS_Store
