@@ -1,7 +1,7 @@
 # Make ColorOS Themes Great Again (MCTGA) · 使用说明
 ==================================
 
-对应模块版本：CosNightTheme 0.2-fix（versionCode 52）
+对应模块版本：MCTGA 0.2.1（versionCode 53）
 适用系统：ColorOS 17（Android 17 / SDK 37）
 主题文件：美游艾德费尔特ColorOS17主题_dark_v7.theme（本说明以它为例，其他 .theme 同理）
 

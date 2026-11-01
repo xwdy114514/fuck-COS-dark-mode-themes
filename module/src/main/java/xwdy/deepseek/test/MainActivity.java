@@ -81,15 +81,15 @@ public class MainActivity extends Activity {
         root.setPadding(pad, pad + dp(12), pad, pad);
 
         TextView title = new TextView(this);
-        title.setText("Make ColorOS Themes Great Again");
-        title.setTextSize(24);
+        title.setText("MCTGA");
+        title.setTextSize(26);
         title.setTextColor(TEXT_MAIN);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         root.addView(title);
 
         TextView sub = new TextView(this);
-        sub.setText("MCTGA · ColorOS 17 深色主题适配 · 0.2-fix");
-        sub.setTextSize(13);
+        sub.setText("Make ColorOS Themes Great Again · ColorOS 17 · " + ver());
+        sub.setTextSize(12);
         sub.setTextColor(TEXT_SUB);
         LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -172,6 +172,14 @@ public class MainActivity extends Activity {
         });
         root.addView(oneKey);
 
+        Button about = makeButton("关于 MCTGA"); about.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                showAbout();
+            }
+        });
+        root.addView(about);
+
         TextView hint = new TextView(this);
         hint.setTextSize(12);
         hint.setTextColor(TEXT_SUB);
@@ -194,6 +202,69 @@ public class MainActivity extends Activity {
 
         scroll.addView(root);
         setContentView(scroll);
+    }
+
+    private String ver() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    private int vcode() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionCode;
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
+    private void showAbout() {
+        final android.app.Dialog dlg = new android.app.Dialog(this);
+        ScrollView sv = new ScrollView(this);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(22), dp(22), dp(22), dp(14));
+        box.setBackground(round(CARD, 18));
+
+        TextView t = new TextView(this);
+        t.setTextColor(TEXT_MAIN);
+        t.setTextSize(13);
+        t.setLineSpacing(dp(3), 1f);
+        t.setText("MCTGA\nMake ColorOS Themes Great Again\n\n"
+                + "版本：" + ver() + "（versionCode " + vcode() + "）\n"
+                + "适用：ColorOS 17（Android 17 / SDK 37）\n"
+                + "包名：xwdy.deepseek.test\n\n"
+                + "作用域 20 个包，其中 13 个应用会透出主题插画背景：\n"
+                + "时钟、录音、日历、文件管理、相册、家人守护、健康、云服务、\n"
+                + "数字健康、小布助手、AI 记忆、使用技巧、快捷指令。\n\n"
+                + "项目主页\nhttps://github.com/xwdy114514/fuck-COS-dark-mode-themes\n\n"
+                + "本模块不包含任何主题包（.theme）、系统 APK 或反编译代码。\n"
+                + "使用 Root 与修改系统主题有风险，请自行评估并承担。");
+        box.addView(t);
+
+        Button close = makeButton("关闭"); close.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                dlg.dismiss();
+            }
+        });
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(46));
+        lp.topMargin = dp(16);
+        close.setLayoutParams(lp);
+        box.addView(close);
+
+        sv.addView(box);
+        dlg.setContentView(sv);
+        dlg.show();
+        android.view.Window w = dlg.getWindow();
+        if (w != null) {
+            w.setBackgroundDrawableResource(android.R.color.transparent);
+            w.setLayout((int) (getResources().getDisplayMetrics().widthPixels * 0.9),
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
     }
 
     private String queryName(Uri uri) {

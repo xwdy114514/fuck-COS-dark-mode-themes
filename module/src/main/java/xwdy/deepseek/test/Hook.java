@@ -17,7 +17,6 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
 public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
 
-    private static String sModulePath;
     private static Drawable sBg;
     private static String sBgKey;
 
@@ -155,12 +154,7 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
 
     @Override
     public void initZygote(IXposedHookZygoteInit.StartupParam param) {
-        try {
-            sModulePath = XposedBridge.class.getProtectionDomain().getCodeSource().getLocation().getPath();
-            log("module path=" + sModulePath);
-        } catch (Throwable t) {
-            log("module path fail " + t);
-        }
+        log("MCTGA loaded");
     }
 
     private static Drawable loadBg(Context c) {
@@ -476,42 +470,6 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
             }
         } catch (Throwable t) {
             log("alarm fix fail " + t);
-        }
-    }
-
-    private static void paintPartial(android.view.View v, String part, Drawable d) {
-        if (v == null) return;
-        try {
-            int id = v.getId();
-            if (id != 0) {
-                String name = v.getResources().getResourceEntryName(id);
-                if (name != null && name.toLowerCase().contains(part)) {
-                    v.setBackground(d);
-                    log("painted " + name);
-                }
-            }
-        } catch (Throwable ignored) {
-        }
-        if (v instanceof android.view.ViewGroup) {
-            android.view.ViewGroup g = (android.view.ViewGroup) v;
-            for (int i = 0; i < g.getChildCount(); i++) {
-                paintPartial(g.getChildAt(i), part, d);
-            }
-        }
-    }
-
-    private static void applyThemeBg(android.app.Activity act) {
-        try {
-            Window w = act.getWindow();
-            if (w == null) return;
-            Drawable d = loadBg(act);
-            if (d == null) return;
-            android.view.View decor = w.getDecorView();
-            if (decor == null) return;
-            decor.setBackground(d);
-            android.view.View content = decor.findViewById(android.R.id.content);
-            if (content != null) clearBg(content, 10);
-        } catch (Throwable ignored) {
         }
     }
 
