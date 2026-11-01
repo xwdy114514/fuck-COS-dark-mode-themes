@@ -1,6 +1,11 @@
 # Make ColorOS Themes Great Again (MCTGA) · 使用说明
 ==================================
 
+> **项目守则**
+>
+> - 不要向任何主题作者催促、讨要适配本模块的深色主题，否则此项目停更删库。
+> - 严禁倒卖。倒卖我会挂到 GitHub，酷安上“光宗耀祖”。
+
 对应模块版本：MCTGA 0.2.1（versionCode 53）
 适用系统：ColorOS 17（Android 17 / SDK 37）
 主题文件：美游艾德费尔特ColorOS17主题_dark_v7.theme（本说明以它为例，其他 .theme 同理）
