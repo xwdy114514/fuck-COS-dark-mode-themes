@@ -34,31 +34,19 @@ ColorOS 的主题引擎在深色模式下会跳过主题资源：
 | 信息 | `com.android.mms` |
 | 文件管理 | `com.coloros.filemanager` |
 | 时钟 | `com.coloros.alarmclock` |
-| 计算器 | `com.coloros.calculator` |
 | 日历 | `com.coloros.calendar` |
-| 天气 | `com.coloros.weather2` |
-| 便签 | `com.coloros.note` |
 | 录音 | `com.coloros.soundrecorder` |
 | 相册 | `com.coloros.gallery3d` |
 | 视频 | `com.coloros.video` |
-| 文档阅读器 | `andes.oplus.documentsreader` |
 | SIM 卡工具 | `com.android.stk` |
-| 指南针 | `com.coloros.compass2` |
 | 数字健康 | `com.coloros.digitalwellbeing` |
 | 家庭守护 | `com.coloros.familyguard` |
 | 快捷指令 | `com.coloros.shortcuts` |
-| 翻译 | `com.coloros.translate` |
-| 钱包 | `com.finshell.wallet` |
 | 云服务 | `com.heytap.cloud` |
 | 健康 | `com.heytap.health` |
-| 应用商店 | `com.heytap.market` |
 | 小布助手 | `com.heytap.speechassist` |
 | 主题商店 | `com.heytap.themestore` |
 | AI 记忆 | `com.oplus.aimemory` |
-| AI 笔记 | `com.oplus.aipaper` |
-| 红外遥控 | `com.oplus.consumerIRApp` |
-| 游戏空间 | `com.oplus.games` |
-| 手机管家 | `com.oplus.phonemanagerlite` |
 | 使用技巧 | `com.oplus.tips` |
 
 > 全屏内容型应用（相机、游戏空间、钱包）背景基本看不到，主题主要影响其配色；不想要可以在 LSPosed 作用域里取消勾选。
@@ -97,11 +85,11 @@ cd module
 ./build.sh
 ```
 
-生成 `signed.apk`，安装后用 LSPosed 启用并勾选上表 32 个作用域。
+生成 `signed.apk`，安装后用 LSPosed 启用并勾选上表 20 个作用域。
 
 ## 使用
 
-1. 安装模块，在 LSPosed 中勾选 32 个作用域
+1. 安装模块，在 LSPosed 中勾选 20 个作用域
 2. 打开模块 → 选择 `.theme` 文件（会自动把主题内所有包补齐到 `/data/theme`）
 3. 到主题商店应用主题
 4. 回到模块点“一键生效”

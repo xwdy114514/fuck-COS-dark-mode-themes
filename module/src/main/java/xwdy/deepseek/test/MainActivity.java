@@ -88,7 +88,7 @@ public class MainActivity extends Activity {
         root.addView(title);
 
         TextView sub = new TextView(this);
-        sub.setText("ColorOS 17 深色主题适配 · 0.1-beta30");
+        sub.setText("ColorOS 17 深色主题适配 · 0.1-beta31");
         sub.setTextSize(13);
         sub.setTextColor(TEXT_SUB);
         LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
@@ -177,7 +177,7 @@ public class MainActivity extends Activity {
         hint.setTextColor(TEXT_SUB);
         hint.setLineSpacing(dp(2), 1f);
         hint.setPadding(0, dp(20), 0, 0);
-        hint.setText("LSPosed 作用域（共 32 个）：\n"
+        hint.setText("LSPosed 作用域（共 20 个）：\n"
                 + "· 设置 / SystemUI / 联系人 / 短信\n"
                 + "· 文件管理 / 时钟 / 计算器 / 日历 / 天气\n"
                 + "· 便签 / 录音 / 相册 / 视频\n"
