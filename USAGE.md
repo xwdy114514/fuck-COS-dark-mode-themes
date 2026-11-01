@@ -1,7 +1,7 @@
 ColorOS 17 深色模式主题 · 使用说明
 ==================================
 
-对应模块版本：CosNightTheme 0.2（versionCode 51）
+对应模块版本：CosNightTheme 0.2-fix（versionCode 52）
 适用系统：ColorOS 17（Android 17 / SDK 37）
 主题文件：美游艾德费尔特ColorOS17主题_dark_v7.theme（本说明以它为例，其他 .theme 同理）
 
@@ -29,7 +29,7 @@ ColorOS 的主题引擎在深色模式下会跳过主题资源：夜间不注入
 
 三、安装步骤
 
-1. 安装 `CosNightTheme-0.2.apk`。
+1. 安装 `CosNightTheme-0.2-fix.apk`。
 
 2. 给模块授权 root
    打开 KernelSU / Magisk，找到包名 `xwdy.deepseek.test` 的应用并授权。

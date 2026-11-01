@@ -88,7 +88,7 @@ public class MainActivity extends Activity {
         root.addView(title);
 
         TextView sub = new TextView(this);
-        sub.setText("ColorOS 17 深色主题适配 · 0.2");
+        sub.setText("ColorOS 17 深色主题适配 · 0.2-fix");
         sub.setTextSize(13);
         sub.setTextColor(TEXT_SUB);
         LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
