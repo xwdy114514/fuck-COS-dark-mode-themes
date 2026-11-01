@@ -46,7 +46,6 @@ ColorOS 的主题引擎在深色模式下会跳过主题资源：
 | 指南针 | `com.coloros.compass2` |
 | 数字健康 | `com.coloros.digitalwellbeing` |
 | 家庭守护 | `com.coloros.familyguard` |
-| OCR 扫描 | `com.coloros.ocrscanner` |
 | 快捷指令 | `com.coloros.shortcuts` |
 | 翻译 | `com.coloros.translate` |
 | 钱包 | `com.finshell.wallet` |
@@ -57,7 +56,6 @@ ColorOS 的主题引擎在深色模式下会跳过主题资源：
 | 主题商店 | `com.heytap.themestore` |
 | AI 记忆 | `com.oplus.aimemory` |
 | AI 笔记 | `com.oplus.aipaper` |
-| 相机 | `com.oplus.camera` |
 | 红外遥控 | `com.oplus.consumerIRApp` |
 | 游戏空间 | `com.oplus.games` |
 | 手机管家 | `com.oplus.phonemanagerlite` |
@@ -99,11 +97,11 @@ cd module
 ./build.sh
 ```
 
-生成 `signed.apk`，安装后用 LSPosed 启用并勾选上表 34 个作用域。
+生成 `signed.apk`，安装后用 LSPosed 启用并勾选上表 32 个作用域。
 
 ## 使用
 
-1. 安装模块，在 LSPosed 中勾选 34 个作用域
+1. 安装模块，在 LSPosed 中勾选 32 个作用域
 2. 打开模块 → 选择 `.theme` 文件（会自动把主题内所有包补齐到 `/data/theme`）
 3. 到主题商店应用主题
 4. 回到模块点“一键生效”
