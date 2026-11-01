@@ -5,5 +5,14 @@
         <item>com.android.systemui</item>
         <item>com.android.contacts</item>
         <item>com.android.mms</item>
+        <item>com.coloros.filemanager</item>
+        <item>com.coloros.alarmclock</item>
+        <item>com.coloros.calculator</item>
+        <item>com.coloros.calendar</item>
+        <item>com.coloros.weather2</item>
+        <item>com.coloros.note</item>
+        <item>com.coloros.soundrecorder</item>
+        <item>com.coloros.gallery3d</item>
+        <item>com.coloros.video</item>
     </string-array>
 </resources>

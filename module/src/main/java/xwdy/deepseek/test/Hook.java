@@ -13,6 +13,15 @@ public class Hook implements IXposedHookLoadPackage {
             "com.android.systemui",
             "com.android.contacts",
             "com.android.mms",
+            "com.coloros.filemanager",
+            "com.coloros.alarmclock",
+            "com.coloros.calculator",
+            "com.coloros.calendar",
+            "com.coloros.weather2",
+            "com.coloros.note",
+            "com.coloros.soundrecorder",
+            "com.coloros.gallery3d",
+            "com.coloros.video",
     };
 
     private static void log(String s) {
@@ -103,6 +112,10 @@ public class Hook implements IXposedHookLoadPackage {
         } catch (Throwable ignored) {
         }
     }
+
+    private static int sScrimId = -1;
+    private static int sBlurId = -1;
+    private static int sLastUiMode = -1;
 
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lp) {
@@ -218,36 +231,74 @@ public class Hook implements IXposedHookLoadPackage {
             log("hook gis fail " + t);
         }
 
-        try {
-            XposedHelpers.findAndHookMethod(
-                    "android.content.res.ResourcesImplExt",
-                    lp.classLoader,
-                    "getThemeFileStream", int.class, String.class,
-                    new XC_MethodHook() {
-                        @Override
-                        protected void beforeHookedMethod(MethodHookParam p) {
-                            rewriteStream(p, 1);
+        if ("com.android.systemui".equals(lp.packageName)) {
+            sLastUiMode = isNight() ? 0x20 : 0x10;
+            try {
+                Class<?> at = XposedHelpers.findClass("android.app.ActivityThread", lp.classLoader);
+                XposedBridge.hookAllMethods(at, "handleConfigurationChanged", new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam p) {
+                        try {
+                            if (p.args == null || p.args.length == 0 || p.args[0] == null) return;
+                            Object cfg = p.args[0];
+                            int ui = XposedHelpers.getIntField(cfg, "uiMode") & 0x30;
+                            int last = sLastUiMode;
+                            sLastUiMode = ui;
+                            if (last != -1 && last != ui && ui != 0) {
+                                log("ui mode changed " + last + " -> " + ui + ", restarting systemui");
+                                new Thread(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        try {
+                                            Thread.sleep(1200L);
+                                        } catch (Throwable ignored) {
+                                        }
+                                        android.os.Process.killProcess(android.os.Process.myPid());
+                                    }
+                                }).start();
+                            }
+                        } catch (Throwable t) {
+                            log("ui mode fail " + t);
                         }
-                    });
-            log("hooked stream");
-        } catch (Throwable t) {
-            log("hook stream fail " + t);
-        }
-
-        try {
-            XposedHelpers.findAndHookMethod(
-                    "android.content.res.ResourcesImplExt",
-                    lp.classLoader,
-                    "getThemeFileStream", String.class,
-                    new XC_MethodHook() {
-                        @Override
-                        protected void beforeHookedMethod(MethodHookParam p) {
-                            rewriteStream(p, 0);
+                    }
+                });
+                log("hooked ui mode");
+            } catch (Throwable t) {
+                log("hook ui mode fail " + t);
+            }
+            XC_MethodHook colorHook = new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam p) {
+                    if (isNight()) return;
+                    try {
+                        if (sScrimId == -1) {
+                            Object res = p.thisObject;
+                            sScrimId = ((Integer) XposedHelpers.callMethod(res, "getIdentifier",
+                                    "notification_scrim_bg_mask_color", "color", "com.android.systemui")).intValue();
+                            sBlurId = ((Integer) XposedHelpers.callMethod(res, "getIdentifier",
+                                    "notification_material_blur_bg", "color", "com.android.systemui")).intValue();
+                            log("day color ids scrim=" + sScrimId + " blur=" + sBlurId);
                         }
-                    });
-            log("hooked stream1");
-        } catch (Throwable t) {
-            log("hook stream1 fail " + t);
+                        int id = ((Integer) p.args[0]).intValue();
+                        if (id == 0) return;
+                        if (id == sScrimId) {
+                            p.setResult(Integer.valueOf(0xFFF2F2F2));
+                        } else if (id == sBlurId) {
+                            p.setResult(Integer.valueOf(0xCCFFFFFF));
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                }
+            };
+            try {
+                XposedHelpers.findAndHookMethod("android.content.res.Resources", lp.classLoader,
+                        "getColor", int.class, colorHook);
+                XposedHelpers.findAndHookMethod("android.content.res.Resources", lp.classLoader,
+                        "getColor", int.class, "android.content.res.Resources$Theme", colorHook);
+                log("hooked day color");
+            } catch (Throwable t) {
+                log("hook day color fail " + t);
+            }
         }
     }
 }

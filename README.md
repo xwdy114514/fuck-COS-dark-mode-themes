@@ -24,15 +24,35 @@ ColorOS 的主题引擎在深色模式下会跳过主题资源：
 - `OplusThemeResourcesPackage.getThemeResources()` 在夜间不会把主题 zip 注入进程
 - 主题引擎应用主题时不会解压 `com.android.contacts` / `com.android.mms`，且不读取 `drawable-night-*` 目录
 
+## 已适配界面
+
+| 界面 | 包名 |
+|---|---|
+| 设置 | `com.android.settings` |
+| 通知栏 / 控制中心（SystemUI） | `com.android.systemui` |
+| 联系人 / 拨号 | `com.android.contacts` |
+| 信息 | `com.android.mms` |
+| 文件管理 | `com.coloros.filemanager` |
+| 时钟 | `com.coloros.alarmclock` |
+| 计算器 | `com.coloros.calculator` |
+| 日历 | `com.coloros.calendar` |
+| 天气 | `com.coloros.weather2` |
+| 便签 | `com.coloros.note` |
+| 录音 | `com.coloros.soundrecorder` |
+| 相册 | `com.coloros.gallery3d` |
+| 视频 | `com.coloros.video` |
+
 ## 功能
 
 - 夜间强制加载 `/data/theme/<包名>` 主题资源
 - 把 `res/drawable*` 请求重定向到 `res/drawable-night-xxhdpi/`
 - 移除设置首页 AppBar 三层背景（消除顶部黑块）
+- 日夜配色分离：日间把 SystemUI 的 `notification_scrim_bg_mask_color`、`notification_material_blur_bg` 改写为浅色，夜间沿用主题值
+- 深浅色切换时自动重建 SystemUI，避免主题 drawable 缓存导致磁贴一半白一半深灰
 - 模块内提供配置界面：
   - 选择 `.theme` 文件（通过 SAF，路径持久化）
-  - 补齐 `com.android.contacts` / `com.android.mms` 到 `/data/theme`
-  - 重启 SystemUI / 设置 / 联系人 / 短信
+  - 一次性补齐主题内所有 `com.*` 包到 `/data/theme`（自动跳过 `_004`、`_007` 这类版本变体）
+  - 重启全部适配应用 + SystemUI
 
 ## 原理（hook 点）
 
@@ -41,6 +61,8 @@ ColorOS 的主题引擎在深色模式下会跳过主题资源：
 | `android.content.res.OplusThemeResourcesPackage` | `getThemeResources(IResourcesImplExt, String)` | 夜间补回主题 zip |
 | `android.content.res.OplusThemeZipFile` | `getInputStreamInner(int, String, MultiZipFile, boolean)`、`getInputStream(int, String)` | 路径重定向到 `drawable-night-xxhdpi` |
 | `com.oplus.settings.feature.homepage.OplusSettingsHomepageActivity` | `onCreate` / `onResume` | 清 AppBar 背景 |
+| `android.content.res.Resources` | `getColor(int)`、`getColor(int, Theme)` | 日间改写 SystemUI 遮罩色 |
+| `android.app.ActivityThread` | `handleConfigurationChanged` | 检测深浅切换并重建 SystemUI |
 
 ## 构建
 
@@ -54,32 +76,23 @@ cd module
 ./build.sh
 ```
 
-生成 `signed.apk`，安装后用 LSPosed 启用，作用域：
+生成 `signed.apk`，安装后用 LSPosed 启用并勾选上表 13 个作用域。
 
-```
-com.android.settings
-com.android.systemui
-com.android.contacts
-com.android.mms
-```
+## 使用
 
-## 使用（必须先勾选作用域）
-
-1. 安装模块，并在 LSPosed 中勾选作用域：com.android.settings、com.android.systemui、com.android.contacts、com.android.mms
-2. 打开 CosNightTheme → 选择 `.theme` 文件
-3. 正常应用主题（主题商店试用）
-4. 点“补齐 contacts/mms 并重启应用”
-5. 下拉一次控制中心（或重启 SystemUI）
+1. 安装模块，在 LSPosed 中勾选 13 个作用域
+2. 打开模块 → 选择 `.theme` 文件（会自动把主题内所有包补齐到 `/data/theme`）
+3. 到主题商店应用主题
+4. 回到模块点“一键生效”
+5. 切换深浅色时 SystemUI 会短暂重建，属正常现象
 
 ## 已知限制
 
-- 主题引擎不会自动解压 contacts/mms，每次重新应用主题后需点一次“补齐”
-- 控制中心面板背景不是主题资源，只能显示系统模糊层
+- 主题引擎不会自动解压 contacts/mms，重新应用主题后需要再点一次“补齐”（选定主题文件时自动执行）
+- 主题只有一份 `assets/colors.xml`，颜色的深浅分离依赖模块 hook；不启用模块时亮色下背景仍偏深
+- 深浅色切换后 SystemUI 会被强制重建（约闪一下），用于清掉主题 drawable 缓存
 - AppBar 顶部黑块在首次打开时可能闪现，切后台回来会消失
-
-## 免责声明
-
-仅供学习与研究。修改主题/系统资源存在风险，请自行备份并承担后果。
+- ColorOS 15 不兼容（hook 点基于 C17 的 oplus-framework.jar）
 
 ## License
 
@@ -92,6 +105,6 @@ com.android.mms
 
 ## Known Issues
 
-- 控制中心背景可通过 SystemUI 主题包的 `notification_material_blur_bg` 与 `notification_scrim_bg_mask_color` 调暗（本项目使用 `#73000000` / `#FF141414`）；模块叠加遮罩层会参与下拉动画导致闪黑，不推荐
 - 设置首页首次打开时顶部可能闪一下黑块，切后台再回来即恢复
 - 每次重新应用主题后，`com.android.contacts` / `com.android.mms` 需要重新点一次“补齐”
+- 切换深浅色会导致 SystemUI 重建，屏幕会短暂闪烁

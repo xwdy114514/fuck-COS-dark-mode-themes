@@ -88,7 +88,7 @@ public class MainActivity extends Activity {
         root.addView(title);
 
         TextView sub = new TextView(this);
-        sub.setText("ColorOS 17 深色主题适配 · 0.1-beta23");
+        sub.setText("ColorOS 17 深色主题适配 · 0.1-beta27");
         sub.setTextSize(13);
         sub.setTextColor(TEXT_SUB);
         LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
@@ -127,7 +127,7 @@ public class MainActivity extends Activity {
         });
         root.addView(pick);
 
-        Button oneKey = makeButton("一键生效（重启拨号/短信/设置 + SystemUI）");
+        Button oneKey = makeButton("一键生效（重启所有适配应用 + SystemUI）");
         oneKey.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -151,7 +151,11 @@ public class MainActivity extends Activity {
                                 v.postDelayed(new Runnable() {
                                     @Override
                                     public void run() {
-                                        runSu("am force-stop com.android.settings; am force-stop com.android.contacts; am force-stop com.android.mms; killall com.android.systemui");
+                                        runSu("am force-stop com.android.settings; am force-stop com.android.contacts; am force-stop com.android.mms; "
+                                                + "am force-stop com.coloros.filemanager; am force-stop com.coloros.alarmclock; am force-stop com.coloros.calculator; "
+                                                + "am force-stop com.coloros.calendar; am force-stop com.coloros.weather2; am force-stop com.coloros.note; "
+                                                + "am force-stop com.coloros.soundrecorder; am force-stop com.coloros.gallery3d; am force-stop com.coloros.video; "
+                                                + "killall com.android.systemui");
                                     }
                                 }, 1500);
                             }
@@ -167,14 +171,13 @@ public class MainActivity extends Activity {
         hint.setTextColor(TEXT_SUB);
         hint.setLineSpacing(dp(2), 1f);
         hint.setPadding(0, dp(20), 0, 0);
-        hint.setText("LSPosed 作用域：\n"
-                + "· com.android.settings\n"
-                + "· com.android.systemui\n"
-                + "· com.android.contacts\n"
-                + "· com.android.mms\n\n"
+        hint.setText("LSPosed 作用域（共 13 个）：\n"
+                + "· 设置 / SystemUI / 联系人 / 短信\n"
+                + "· 文件管理 / 时钟 / 计算器 / 日历 / 天气\n"
+                + "· 便签 / 录音 / 相册 / 视频\n\n"
                 + "使用顺序：\n"
                 + "1. 去主题商店应用主题\n"
-                + "2. 回到软件选择主题文件（选完自动补齐）\n"
+                + "2. 回到软件选择主题文件（选完自动补齐主题内所有包）\n"
                 + "3. 点击“一键生效”");
         root.addView(hint);
 
@@ -252,13 +255,14 @@ public class MainActivity extends Activity {
                         out.close();
                         String cmd = "cp " + cache.getAbsolutePath() + " /data/local/tmp/eta_import.theme; "
                                 + "rm -rf /data/local/tmp/eta_import; mkdir -p /data/local/tmp/eta_import; "
-                                + "cd /data/local/tmp && unzip -o eta_import.theme com.android.contacts com.android.mms -d eta_import >/dev/null 2>&1; "
-                                + "cp -f eta_import/com.android.contacts /data/theme/; cp -f eta_import/com.android.mms /data/theme/; "
-                                + "chown 10303:10303 /data/theme/com.android.contacts /data/theme/com.android.mms; "
-                                + "chmod 0666 /data/theme/com.android.contacts /data/theme/com.android.mms; "
+                                + "cd /data/local/tmp && unzip -o eta_import.theme 'com.*' -d eta_import >/dev/null 2>&1; "
+                                + "n=0; for p in /data/local/tmp/eta_import/com.*; do [ -f \"$p\" ] || continue; "
+                                + "b=${p##*/}; case \"$b\" in *_[0-9][0-9][0-9]) continue;; esac; "
+                                + "cp -f \"$p\" /data/theme/; chown 10303:10303 \"/data/theme/$b\"; chmod 0666 \"/data/theme/$b\"; n=$((n+1)); done; "
+                                + "echo \"$n\"; "
                                 + "am force-stop com.android.contacts; am force-stop com.android.mms";
                         runSu(cmd);
-                        msg = "已补齐 contacts/mms";
+                        msg = "已补齐主题内所有应用包（目录已刷新）";
                     }
                 } catch (Throwable t) {
                     msg = "失败: " + t;
