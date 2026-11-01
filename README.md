@@ -51,6 +51,8 @@ ColorOS 的主题引擎在深色模式下会跳过主题资源：
 
 > 全屏内容型应用（相机、游戏空间、钱包）背景基本看不到，主题主要影响其配色；不想要可以在 LSPosed 作用域里取消勾选。
 
+> **背景插画透出**：闹钟、录音、日历、文件管理、相册、家庭守护、健康、云服务、数字健康、小布助手、AI 记忆、使用技巧、快捷指令 这 13 个应用额外启用了窗口插画背景（见下方「功能」）。视频不再支持。
+
 ## 功能
 
 - 夜间强制加载 `/data/theme/<包名>` 主题资源
@@ -58,6 +60,10 @@ ColorOS 的主题引擎在深色模式下会跳过主题资源：
 - 移除设置首页 AppBar 三层背景（消除顶部黑块）
 - 日夜配色分离：日间把 SystemUI 的 `notification_scrim_bg_mask_color`、`notification_material_blur_bg` 改写为浅色，夜间沿用主题值
 - 深浅色切换时自动重建 SystemUI，避免主题 drawable 缓存导致磁贴一半白一半深灰
+- **背景插画透出**：对闹钟、录音、日历、文件管理、相册、家庭守护、健康、云服务、数字健康、小布助手、AI 记忆、使用技巧、快捷指令，在 Activity `onCreate` / `onResume` 时立刻把 DecorView 背景设为主题插画（日夜分别用 `bg_day.png` / `bg_night.png`），做到首帧就是插画、不会先黑一下
+  - 按 id 定点清掉顶层遮挡：`appBarLayout`、各标签页的 `world_clock_toolbar_include`、`layout_empty_container`，并把所有 `blur_overlay`（AppBarBlurOverlayView）设为 GONE
+  - 日历 / 文件管理 / 相册 / 使用技巧这类整页自绘不透明底色的应用使用深度清理（到第 40 层），并在布局变化时按 300ms 节流复清，滚动新建的条目也会一并处理
+  - 类名含 `editor` 的 Activity（相册编辑、扩图、设为壁纸、视频编辑等）自动跳过，避免编辑界面被透明化
 - 模块内提供配置界面：
   - 选择 `.theme` 文件（通过 SAF，路径持久化）
   - 一次性补齐主题内所有 `com.*` 包到 `/data/theme`（自动跳过 `_004`、`_007` 这类版本变体）
@@ -71,6 +77,9 @@ ColorOS 的主题引擎在深色模式下会跳过主题资源：
 | `android.content.res.OplusThemeZipFile` | `getInputStreamInner(int, String, MultiZipFile, boolean)`、`getInputStream(int, String)` | 路径重定向到 `drawable-night-xxhdpi` |
 | `com.oplus.settings.feature.homepage.OplusSettingsHomepageActivity` | `onCreate` / `onResume` | 清 AppBar 背景 |
 | `android.content.res.Resources` | `getColor(int)`、`getColor(int, Theme)` | 日间改写 SystemUI 遮罩色 |
+| `android.app.Activity` | `onCreate` / `onResume` | 立刻把 DecorView 背景设为插画（首帧生效） |
+| `android.view.View` | `setBackground` 后的定点清理（`appBarLayout` / `world_clock_toolbar_include` / `layout_empty_container`） | 去掉顶层不透明底色 |
+| `android.view.ViewTreeObserver` | `OnGlobalLayout` | 布局变化时节流复查，处理 ViewPager 后加载页面与列表新条目 |
 | `android.app.ActivityThread` | `handleConfigurationChanged` | 检测深浅切换并重建 SystemUI |
 
 ## 构建

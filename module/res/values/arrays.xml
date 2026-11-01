@@ -11,15 +11,10 @@
         <item>com.coloros.soundrecorder</item>
         <item>com.coloros.gallery3d</item>
         <item>com.coloros.video</item>
-        <item>com.android.stk</item>
         <item>com.coloros.digitalwellbeing</item>
         <item>com.coloros.familyguard</item>
-        <item>com.coloros.shortcuts</item>
         <item>com.heytap.cloud</item>
         <item>com.heytap.health</item>
-        <item>com.heytap.speechassist</item>
         <item>com.heytap.themestore</item>
-        <item>com.oplus.aimemory</item>
-        <item>com.oplus.tips</item>
     </string-array>
 </resources>
