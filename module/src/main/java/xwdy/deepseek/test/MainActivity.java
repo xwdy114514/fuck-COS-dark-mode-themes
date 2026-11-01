@@ -88,7 +88,7 @@ public class MainActivity extends Activity {
         root.addView(title);
 
         TextView sub = new TextView(this);
-        sub.setText("ColorOS 17 深色主题适配 · 0.1-beta28");
+        sub.setText("ColorOS 17 深色主题适配 · 0.1-beta29");
         sub.setTextSize(13);
         sub.setTextColor(TEXT_SUB);
         LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
@@ -135,11 +135,17 @@ public class MainActivity extends Activity {
                 new Thread(new Runnable() {
                     @Override
                     public void run() {
-                        final boolean applied = hasThemeApplied();
+                        final int state = themeState();
                         runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
-                                if (!applied) {
+                                if (state == -1) {
+                                    tvStatus.setText("没有拿到 root 权限，无法检查/操作系统主题目录。\n\n请在 KernelSU / Magisk 里给本模块授权（包名 xwdy.deepseek.test），授权后再点一次。");
+                                    android.widget.Toast.makeText(MainActivity.this,
+                                            "请先授予 root 权限", android.widget.Toast.LENGTH_LONG).show();
+                                    return;
+                                }
+                                if (state == 0) {
                                     tvStatus.setText("检测到主题还没有应用，请先去主题商店应用主题，再回来点一键生效");
                                     android.widget.Toast.makeText(MainActivity.this,
                                             "请先应用主题", android.widget.Toast.LENGTH_LONG).show();
@@ -280,17 +286,38 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    private boolean hasThemeApplied() {
+    // 返回 -1 = 没有 root 权限，0 = 主题未应用，1 = 已应用
+    private int themeState() {
+        Process p = null;
         try {
-            Process p = Runtime.getRuntime().exec(new String[]{
-                    "su", "-c", "test -f /data/theme/com.android.settings && echo yes || echo no"});
+            p = Runtime.getRuntime().exec(new String[]{
+                    "su", "-c",
+                    "echo ROOT_OK; test -f /data/theme/com.android.settings && echo THEME_YES || echo THEME_NO"});
+            boolean done = p.waitFor(4, java.util.concurrent.TimeUnit.SECONDS);
+            if (!done) {
+                p.destroy();
+                return -1;
+            }
             java.io.BufferedReader r = new java.io.BufferedReader(
                     new java.io.InputStreamReader(p.getInputStream()));
-            String line = r.readLine();
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = r.readLine()) != null) {
+                sb.append(line).append('\n');
+            }
             r.close();
-            return "yes".equals(line);
+            String out = sb.toString();
+            if (!out.contains("ROOT_OK")) return -1;
+            return out.contains("THEME_YES") ? 1 : 0;
         } catch (Throwable t) {
-            return false;
+            return -1;
+        } finally {
+            if (p != null) {
+                try {
+                    p.destroy();
+                } catch (Throwable ignored) {
+                }
+            }
         }
     }
 
