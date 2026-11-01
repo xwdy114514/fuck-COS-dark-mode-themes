@@ -88,7 +88,7 @@ public class MainActivity extends Activity {
         root.addView(title);
 
         TextView sub = new TextView(this);
-        sub.setText("ColorOS 17 深色主题适配 · 0.1-beta27");
+        sub.setText("ColorOS 17 深色主题适配 · 0.1-beta28");
         sub.setTextSize(13);
         sub.setTextColor(TEXT_SUB);
         LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
@@ -171,10 +171,12 @@ public class MainActivity extends Activity {
         hint.setTextColor(TEXT_SUB);
         hint.setLineSpacing(dp(2), 1f);
         hint.setPadding(0, dp(20), 0, 0);
-        hint.setText("LSPosed 作用域（共 13 个）：\n"
+        hint.setText("LSPosed 作用域（共 34 个）：\n"
                 + "· 设置 / SystemUI / 联系人 / 短信\n"
                 + "· 文件管理 / 时钟 / 计算器 / 日历 / 天气\n"
-                + "· 便签 / 录音 / 相册 / 视频\n\n"
+                + "· 便签 / 录音 / 相册 / 视频\n"
+                + "· 文档 / 云服务 / 商店 / 主题商店 / 健康 / 小布\n"
+                + "· 钱包 / 相机 / 游戏空间 / 手机管家 / 翻译 / 扫描 等\n\n"
                 + "使用顺序：\n"
                 + "1. 去主题商店应用主题\n"
                 + "2. 回到软件选择主题文件（选完自动补齐主题内所有包）\n"

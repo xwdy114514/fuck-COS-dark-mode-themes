@@ -14,5 +14,26 @@
         <item>com.coloros.soundrecorder</item>
         <item>com.coloros.gallery3d</item>
         <item>com.coloros.video</item>
+        <item>andes.oplus.documentsreader</item>
+        <item>com.android.stk</item>
+        <item>com.coloros.compass2</item>
+        <item>com.coloros.digitalwellbeing</item>
+        <item>com.coloros.familyguard</item>
+        <item>com.coloros.ocrscanner</item>
+        <item>com.coloros.shortcuts</item>
+        <item>com.coloros.translate</item>
+        <item>com.finshell.wallet</item>
+        <item>com.heytap.cloud</item>
+        <item>com.heytap.health</item>
+        <item>com.heytap.market</item>
+        <item>com.heytap.speechassist</item>
+        <item>com.heytap.themestore</item>
+        <item>com.oplus.aimemory</item>
+        <item>com.oplus.aipaper</item>
+        <item>com.oplus.camera</item>
+        <item>com.oplus.consumerIRApp</item>
+        <item>com.oplus.games</item>
+        <item>com.oplus.phonemanagerlite</item>
+        <item>com.oplus.tips</item>
     </string-array>
 </resources>
