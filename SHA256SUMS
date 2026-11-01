@@ -1,11 +1,11 @@
 013fffdbe80041ead02ed110b843dd123600a1b73c53c1719ded6c6064e4f71c  ./.gitignore
-75856c3e7ce0f8580dc1d1ef1c08f9e273ddbd831652f75e0f4d9db87d69702a  ./README.md
+672ed2601ce3183399b39203b54acba73a90499e89bd3d93d3eb447bf4bfb40f  ./README.md
 6cbb1873f80b66adae647a3aa3210193d1b4a7fe800bc717ec8efcc2d0bdfe6c  ./LICENSE
-b81bc1503ad9a596599483164b0782d7ec3d9605d1074b013bf418bba67927b8  ./build.sh
+c8cfd6173e3de550632cd3a159b3443643c2f6a60ba159b35eeb51d58264dab1  ./build.sh
 ba7490fd473069cc421c93795bc568fbc8d7dea414a871578cc45a10885ac312  ./docs/融合说明.md
 eeb93305cfb0a902686a65b5ac120f8e595b07ad800d68f40ea11cfeead62c4d  ./docs/作用域与特殊逻辑.md
-5fc58729a5ccb5ad244f3b5d9bd930a2a2c445bf903ad248ac38261aedb3f824  ./install.sh
-fa13e23e2aa141d07b2cb58ba9f9acb79309f6f5bf123f969fc523638df90f04  ./module/AndroidManifest.xml
+95621dd47b7dae984e63571d7e3e22e72c6160eea94a898a41a4948f48e8685f  ./install.sh
+10bdcc19f852004cac799d38e5aa921ecae93ded3e04eab0ba81d323e05c386d  ./module/AndroidManifest.xml
 996ddec71df8a8eae042af349582f1899da2fc0089a22f7942d03e6db6f21b52  ./module/assets/bg_day.png
 9fb424f38c776169f277dea9fae7dd3be29a95b67a061d1584c6a36701cf7acd  ./module/assets/bg_night.png
 584945c98f21b0c4e3ccdb74b51528f89852174c30bb2a4786c43a8ca456e496  ./module/dependencies/aidl.jar
@@ -21,8 +21,8 @@ af8f982d35e66b021f7c83ceca3fc187bd0f1fb2a0979262af0cbf3778544299  ./module/src/m
 74728f9d6073bf2ed835e37d917f9be93554cf913d1c149af8226aa57d9e0186  ./module/src/main/java/xwdy/deepseek/test/ShellRunner.java
 1a7ac3ebf0a68c2387cda05c12f576e489cca1b2b52734c325b11e47304d5668  ./module/src/main/java/xwdy/deepseek/test/ShizukuBridge.java
 b75bbe08629ac2a8616c4e2276b6ab03d5871018ade01976c5cc93a57a1c82b4  ./module/src/main/java/xwdy/deepseek/test/ThemeEngine.java
-4e0083b54976e999f84851f0e172a73a0c8fde90bceaafc25ec007930acda8d5  ./out/MCTGA-0.5.4-beta.apk
+d692e81cc489c3fac58a57cd4af45721f649dd958ca09f23ba4a47a84e56c0f5  ./out/MCTGA-0.3-beta.apk
 f48c635f1c7469fdec0e00ad2ea0b7a6b2f5b55065784a35b7ca3a84615e8e25  ./tools/XposedBridgeAPI-82.jar
 51791946c296e358fb746fc9285aa68c8e88376b688ac8aa8436df909b3a5d91  ./tools/eta.keystore
 218edee7819052271f97c0508e97d3d8f0275b2dd25f48d3cb8062188a7eca75  ./tools/toolchain.md
-78312fcc18f16763ae41331a51a488216d0822b21d5d3f1b8c9f8b6bcb9dd0be  ./交接文档.md
+f4713e081b4935a6abf349d6c77af3f876cc0dfd564ce189f431459f1a035290  ./交接文档.md
