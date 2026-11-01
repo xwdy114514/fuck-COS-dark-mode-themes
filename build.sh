@@ -15,7 +15,7 @@ KS=${KEYSTORE:-/data/local/tmp/cosnight/eta.keystore}
 [ -f "$KS" ] || KS="$PROJ/tools/eta.keystore"
 SH="$MOD/dependencies"
 LIBS="$SH/api.jar:$SH/provider.jar:$SH/aidl.jar:$SH/shared.jar"
-VERSION=0.3-beta
+VERSION=0.3
 
 OUT="$PROJ/out"
 B="$OUT/build"

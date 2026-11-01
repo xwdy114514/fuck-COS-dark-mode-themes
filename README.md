@@ -108,7 +108,7 @@ su -c "settings put global mctga_dark_attach 1"   # 开启（默认）
 
 ## 安装（发布版）
 
-1. 安装 `out/MCTGA-0.3-beta.apk`（需要 LSPosed，Android 12+）
+1. 安装 `out/MCTGA-0.3.apk`（需要 LSPosed，Android 12+）
 2. LSPosed 里启用模块，作用域按 `module/res/values/arrays.xml`（20 个包）
 3. 打开 MCTGA：授予 Root（补齐 / 重启用）或 Shizuku（锁定 / 解冻用）
 4. 文件管理里点 `.theme` → 免费试用（由主题商店写入）
@@ -125,4 +125,4 @@ export KEYSTORE=$PWD/tools/eta.keystore
 sh build.sh
 ```
 
-产物：`out/MCTGA-0.3-beta.apk`。签名必须沿用 `tools/eta.keystore`，否则覆盖安装会失败。
+产物：`out/MCTGA-0.3.apk`。签名必须沿用 `tools/eta.keystore`，否则覆盖安装会失败。
