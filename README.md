@@ -1,7 +1,5 @@
 # fuck COS dark mod theme
 
-该项目基本均由AI完成，AI浓度极高，本人仅在c17上测试成功，其他系统版本我不确定能否使用
-
 > **免责声明**
 >
 > 本项目仅供个人学习、研究与技术交流使用，不提供任何形式的保证。
@@ -86,3 +84,9 @@ com.android.mms
 - 不得销售本软件，或销售其价值主要来自本软件功能的产品/服务（Commons Clause）
 
 完整条款见 `LICENSE` 文件。
+
+## Known Issues
+
+- 控制中心背景可通过 SystemUI 主题包的 `notification_material_blur_bg` 与 `notification_scrim_bg_mask_color` 调暗（本项目使用 `#73000000` / `#FF141414`）；模块叠加遮罩层会参与下拉动画导致闪黑，不推荐
+- 设置首页首次打开时顶部可能闪一下黑块，切后台再回来即恢复
+- 每次重新应用主题后，`com.android.contacts` / `com.android.mms` 需要重新点一次“补齐”
