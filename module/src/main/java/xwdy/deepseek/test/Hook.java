@@ -257,18 +257,16 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
                                                 sPending = false;
                                                 try {
                                                     int n = clearScrims(fDecor, pkg);
-                                                    if (isDeep(pkg)) {
-                                                        long now = System.currentTimeMillis();
-                                                        if (now - sLastDeep > 300) {
-                                                            sLastDeep = now;
-                                                            n += clearBgCount(fDecor, 40);
-                                                            fDecor.setBackground(loadBg(fDecor.getContext()));
-                                                        }
+                                                    long now = System.currentTimeMillis();
+                                                    if (now - sLastDeep > 300) {
+                                                        sLastDeep = now;
+                                                        n += clearBgCount(fDecor, isDeep(pkg) ? 40 : 10);
+                                                        fDecor.setBackground(loadBg(fDecor.getContext()));
                                                     }
                                                     int bid2 = fDecor.getContext().getResources()
                                                             .getIdentifier("blur_overlay", "id", pkg);
                                                     if (bid2 != 0) hideAllById(fDecor, bid2, 0);
-                                                    if (n > 0) log("layout re-clear x" + n);
+                                                    if (n > 0) log("layout re-clear x" + n + " pkg=" + pkg);
                                                 } catch (Throwable ignored) {
                                                 }
                                             }

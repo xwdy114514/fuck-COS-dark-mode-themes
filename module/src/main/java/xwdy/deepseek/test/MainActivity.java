@@ -81,14 +81,14 @@ public class MainActivity extends Activity {
         root.setPadding(pad, pad + dp(12), pad, pad);
 
         TextView title = new TextView(this);
-        title.setText("fuck COS dark mod theme");
+        title.setText("Make ColorOS Themes Great Again");
         title.setTextSize(24);
         title.setTextColor(TEXT_MAIN);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         root.addView(title);
 
         TextView sub = new TextView(this);
-        sub.setText("ColorOS 17 深色主题适配 · 0.2-fix");
+        sub.setText("MCTGA · ColorOS 17 深色主题适配 · 0.2-fix");
         sub.setTextSize(13);
         sub.setTextColor(TEXT_SUB);
         LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(

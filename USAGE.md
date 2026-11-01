@@ -1,4 +1,4 @@
-ColorOS 17 深色模式主题 · 使用说明
+# Make ColorOS Themes Great Again (MCTGA) · 使用说明
 ==================================
 
 对应模块版本：CosNightTheme 0.2-fix（versionCode 52）

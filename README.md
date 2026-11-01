@@ -1,4 +1,4 @@
-# fuck COS dark mod theme
+# Make ColorOS Themes Great Again (MCTGA)
 
 > **AI 生成声明**
 >

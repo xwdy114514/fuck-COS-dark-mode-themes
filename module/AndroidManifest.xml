@@ -7,10 +7,10 @@
     <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35" />
 
     <application
-        android:label="fuck COS dark mod theme"
+        android:label="Make ColorOS Themes Great Again"
         android:hasCode="true">
 
-        <activity android:name=".MainActivity" android:exported="true" android:label="fuck COS dark mod theme" android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+        <activity android:name=".MainActivity" android:exported="true" android:label="Make ColorOS Themes Great Again" android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -22,7 +22,7 @@
             android:value="true" />
         <meta-data
             android:name="xposeddescription"
-            android:value="让 ColorOS 主题在深色模式下也加载" />
+            android:value="MCTGA · 让 ColorOS 主题在深色模式下也加载" />
         <meta-data
             android:name="xposedminversion"
             android:value="82" />
