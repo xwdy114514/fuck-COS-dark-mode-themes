@@ -32,7 +32,7 @@ done
 echo "== aapt2 =="
 "$P/bin/aapt2" compile --dir "$MOD/res" -o "$B/res.zip"
 "$P/bin/aapt2" link -o "$B/base.apk" -I "$AJ" --manifest "$MOD/AndroidManifest.xml" \
-  "$B/res.zip" --min-sdk-version 30 --target-sdk-version 35 --auto-add-overlay
+  "$B/res.zip" --min-sdk-version 29 --target-sdk-version 35 --auto-add-overlay
 
 echo "== javac =="
 find "$MOD/src" -name '*.java' > "$B/sources.txt"
@@ -41,7 +41,7 @@ find "$MOD/src" -name '*.java' > "$B/sources.txt"
 
 echo "== d8 =="
 "$JAVA/java" -cp "$P/share/java/d8.jar" com.android.tools.r8.D8 \
-  --release --lib "$AJ" --min-api 30 --output "$B/dex" \
+  --release --lib "$AJ" --min-api 29 --output "$B/dex" \
   "$SH/api.jar" "$SH/provider.jar" "$SH/aidl.jar" "$SH/shared.jar" \
   "$SH/commons-compress-1.21.jar" "$SH/xz-1.9.jar" \
   $(find "$B/classes" -name '*.class')

@@ -4,7 +4,7 @@
 
 - 包名：`xwdy.deepseek.test`
 - 版本：`0.4`（versionCode 152）
-- 系统：ColorOS 17 / realme UI（其它系统整屏拦截）
+- 系统：ColorOS 11+ / realme UI（深色适配仍只在 ColorOS 17 上启用）
 
 ## 功能
 
@@ -19,7 +19,7 @@
 
 ## 环境要求
 
-- ColorOS 17（`ro.build.version.oplusrom` 以 `V17` 开头）
+- ColorOS 11+；深色适配要求 ColorOS 17（`ro.build.version.oplusrom` 以 `V17` 开头）
 - LSPosed（Zygisk）
 - Root（KernelSU / Magisk）或已启动的 Shizuku
 

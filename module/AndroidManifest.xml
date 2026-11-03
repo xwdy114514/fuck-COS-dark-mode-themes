@@ -4,7 +4,7 @@
     android:versionCode="152"
     android:versionName="0.4">
 
-    <uses-sdk android:minSdkVersion="30" android:targetSdkVersion="35" />
+    <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35" />
 
     <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
 
