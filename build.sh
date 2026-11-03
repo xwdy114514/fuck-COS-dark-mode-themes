@@ -54,6 +54,13 @@ cd "$B" && "$JAVA/jar" uf "$B/unsigned.apk" -C "$B/dex" classes.dex
 "$JAVA/jar" uf "$B/unsigned.apk" -C "$B" bg_day.png -C "$B" bg_night.png -C "$B" assets/xposed_init
 cd "$PROJ"
 
+SIGN_IN="$B/unsigned.apk"
+if [ -n "${ALIGN_CLASSES:-}" ]; then
+  echo "== 对齐 =="
+  "$JAVA/java" -cp "$ALIGN_CLASSES" Align "$B/unsigned.apk" "$B/aligned.apk"
+  SIGN_IN="$B/aligned.apk"
+fi
+
 echo "== 签名 =="
 if [ ! -f "$KS" ]; then
   "$JAVA/keytool" -genkeypair -keystore "$KS" -alias eta -storepass etatata -keypass etatata \
@@ -61,7 +68,7 @@ if [ ! -f "$KS" ]; then
 fi
 "$JAVA/java" -jar "$P/share/java/apksigner.jar" sign \
   --ks "$KS" --ks-pass pass:etatata --key-pass pass:etatata \
-  --out "$OUT/MCTGA-$VERSION.apk" "$B/unsigned.apk"
+  --out "$OUT/MCTGA-$VERSION.apk" "$SIGN_IN"
 "$JAVA/java" -jar "$P/share/java/apksigner.jar" verify --print-certs "$OUT/MCTGA-$VERSION.apk" | head -4
 ls -l "$OUT/MCTGA-$VERSION.apk"
 echo "完成：$OUT/MCTGA-$VERSION.apk"

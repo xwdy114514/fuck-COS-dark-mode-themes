@@ -60,3 +60,14 @@ sh build.sh
 
 GPL-3.0 + Commons Clause，见 `LICENSE`。基于 **fuck COS dark mod theme** 继续开发；
 修改 / 衍生作品必须继续开源，不得销售。
+
+### 对齐（Android 11+ 安装必需）
+
+`resources.arsc` 必须是 STORED 且 4 字节对齐。构建时设置：
+
+```sh
+javac -d /path/to/align tools/Align.java
+export ALIGN_CLASSES=/path/to/align
+```
+
+`build.sh` 会在签名前调用 `Align`（`tools/Align.java`），把 `resources.arsc` / `.so` 保持 STORED 并用 0xD935 额外字段对齐。
