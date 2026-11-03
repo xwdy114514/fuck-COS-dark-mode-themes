@@ -34,7 +34,7 @@ b6cdce4209b059b45f5ec52e1ba33def34443957518b9c550187c482b4692ab0  ./module/res/m
 abc1896ffe9e7aba7789a71a872dc4a955dbb8d703e73958e380c822f8d7bf20  ./module/res/values/arrays.xml
 c2f47c0eb5fe922700b3e8280f3d56e9fc05bc57a2080e4fd2ce6e1dc6fe4040  ./module/src/main/java/xwdy/deepseek/test/EnvCheck.java
 2ae5e6dd2ca0fb1ef475b2b9b21acc0312a01d7ad84710cd4e350af2949e25c9  ./module/src/main/java/xwdy/deepseek/test/Hook.java
-5612b2f60d23609927aa9dd04051a6d097b5385c9f698c1f5ff52d3a4cd21ffa  ./module/src/main/java/xwdy/deepseek/test/MainActivity.java
+99ee4c91a50c2d882a31cf238b6b95fd1bdb6e40423c369ce6529480613cf1c6  ./module/src/main/java/xwdy/deepseek/test/MainActivity.java
 6a304306143ac286a1d411474f4f0ca694f5e3b36414114e772e8e5a8a706891  ./module/src/main/java/xwdy/deepseek/test/OsVersion.java
 2ebf5dbf9ce129750ec6609091a9f3a4b3b431da21b9296fd83f471537c77098  ./module/src/main/java/xwdy/deepseek/test/PackProvider.java
 7b87f0313554100b77ae84b16de140194f7ebfdd0ef0c54a7cb34aa4ca28c84f  ./module/src/main/java/xwdy/deepseek/test/RootShell.java
@@ -43,8 +43,8 @@ f91ef90c6164a96b3a6d56515591ee7c58cb114762bcfb73b6cc49a7200c37d1  ./module/src/m
 b75bbe08629ac2a8616c4e2276b6ab03d5871018ade01976c5cc93a57a1c82b4  ./module/src/main/java/xwdy/deepseek/test/ThemeEngine.java
 b9e4d5f08724010629a491074cf4fd88d7e92fb18a4a28e35185bdc1d02bb49c  ./out/MCTGA-0.3-beta31.apk
 80802f91126fd3e66fbae308a387ac122759613724500e8dcf66e85bf1ce8615  ./out/MCTGA-0.3-beta31.apk.idsig
-d0f69e7506f5ad32b53e38110dabe0e89dc922acdeb36a8992910327af5a97e8  ./out/MCTGA-0.4.apk
-7fafdc71ba8761050547389bb2423e761c3c320564501da051f701d6e06d562e  ./out/MCTGA-0.4.apk.idsig
+310b4a2eaceb7a4269169c31302f1df201c83071c4a338869f463b269ac11191  ./out/MCTGA-0.4.apk
+9fa88f53298d6219c21544929b1880762c2297ae613d395dd3a2ff5f3ba46759  ./out/MCTGA-0.4.apk.idsig
 f48c635f1c7469fdec0e00ad2ea0b7a6b2f5b55065784a35b7ca3a84615e8e25  ./tools/XposedBridgeAPI-82.jar
 51791946c296e358fb746fc9285aa68c8e88376b688ac8aa8436df909b3a5d91  ./tools/eta.keystore
 8b32888a255209e7555d0c9e46d4fac9bc201443d24986999cc89dea8c1f170c  ./tools/icon/README.md
