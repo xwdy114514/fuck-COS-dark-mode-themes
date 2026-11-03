@@ -1891,19 +1891,38 @@ public class MainActivity extends Activity {
     }
 
     /** 商店被挂起且 Themes 是空占位文件时，主动问一次要不要处理。 */
+
+    /** 商店被挂起 / Themes 是空占位文件，任一成立就主动问一次要不要处理。 */
     private void maybePromptLocked() {
-        boolean bad = storeSuspendedKnown && storeSuspended && themesState.startsWith("已锁定");
-        if (!bad) {
+        boolean susp = storeSuspendedKnown && storeSuspended;
+        boolean empty = themesState.startsWith("已锁定");
+        if (!susp && !empty) {
             unlockPrompted = false;
             return;
         }
         if (unlockPrompted || !canShowDialog() || !channelReady()) return;
         unlockPrompted = true;
+        String title;
+        String msg;
+        if (susp && empty) {
+            title = "主题商店被锁定";
+            msg = "检测到主题商店处于挂起状态，且 Themes 是空占位文件。\n\n"
+                    + "这会导致商店打不开，也没法恢复默认主题。\n\n"
+                    + "要现在解冻商店并删除这个空文件吗？";
+        } else if (susp) {
+            title = "主题商店被挂起";
+            msg = "检测到主题商店处于挂起状态（Themes 空文件已不在）。\n\n"
+                    + "挂起状态下商店打不开。\n\n"
+                    + "要现在解冻商店吗？";
+        } else {
+            title = "Themes 是空文件";
+            msg = "检测到商店的 Themes 仍是空占位文件（商店没有被挂起）。\n\n"
+                    + "空文件会让商店导入 / 换主题失败。\n\n"
+                    + "要现在删除这个空文件吗？";
+        }
         new AlertDialog.Builder(this)
-                .setTitle("主题商店被锁定")
-                .setMessage("检测到主题商店处于挂起状态，且 Themes 是空占位文件。\n\n"
-                        + "这会导致商店打不开，也没法恢复默认主题。\n\n"
-                        + "要现在解冻商店并删除这个空文件吗？")
+                .setTitle(title)
+                .setMessage(msg)
                 .setPositiveButton("处理", new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface d, int w) {
@@ -1913,7 +1932,6 @@ public class MainActivity extends Activity {
                 .setNegativeButton("暂不", null)
                 .show();
     }
-
     private void handleLockedState() {
         final String pkg = (storePkg == null || storePkg.isEmpty())
                 ? "com.heytap.themestore" : storePkg;
