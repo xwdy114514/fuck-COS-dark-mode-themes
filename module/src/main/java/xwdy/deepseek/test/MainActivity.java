@@ -2940,6 +2940,8 @@ public class MainActivity extends Activity {
                     + "echo DONE\n";
 
 
+
+    /** 可滚动、可复制 / 分享的文本弹窗。 */
     private void showDiagnostics() {
         final boolean viaShizuku = useShizukuChannel();
         toast("正在收集诊断…");
@@ -2947,13 +2949,34 @@ public class MainActivity extends Activity {
             @Override
             public void run() {
                 final ShellRunner.Result r = sh(DIAG_SCRIPT, 30000, viaShizuku);
+                String extra = "echo THEME_FILES:$(ls /data/theme 2>/dev/null | wc -l)\n"
+                        + "for p in com.android.contacts com.android.mms com.android.settings"
+                        + " com.android.systemui; do "
+                        + "n=$(unzip -l /data/theme/$p 2>/dev/null | grep -c night); "
+                        + "echo NIGHT:$p=$n; done\n"
+                        + "T=/storage/emulated/0/Android/data/" + storePkg + "/files/Themes\n"
+                        + "echo THEMES:$(stat -c %s \"$T\" 2>/dev/null || echo none)\n"
+                        + "echo LOCKDIR:$(ls -d /storage/emulated/0/Android/data/" + storePkg
+                        + "/files/.Themes.lockdir-* 2>/dev/null | wc -l)\n"
+                        + "echo SUSPEND_ENTRIES:$(dumpsys package " + storePkg
+                        + " 2>/dev/null | grep -c suspendingPackage=)\n"
+                        + "echo LSPD:$(pidof lspd 2>/dev/null || echo none)\n";
+                final ShellRunner.Result e = sh(extra, 20000, viaShizuku);
                 StringBuilder sb = new StringBuilder();
                 sb.append("MCTGA ").append(ver()).append("（").append(vcode()).append("）\n");
+                sb.append("设备：").append(android.os.Build.MANUFACTURER).append(' ')
+                        .append(android.os.Build.MODEL).append(" / Android ")
+                        .append(android.os.Build.VERSION.RELEASE).append('\n');
                 sb.append("系统：").append(osVersion()).append('\n');
+                sb.append("支持：").append(OsVersion.supported() ? "ColorOS 17" : "不支持").append('\n');
                 sb.append("Root：").append(rootReady ? "可用" : "不可用").append('\n');
                 sb.append("Shizuku：").append(ShizukuBridge.state()).append('\n');
+                sb.append("LSPosed：").append(hookChecked
+                        ? (hookUnknown ? "无法确认（没有 Root / Shizuku）"
+                        : (hookReady ? "运行中" : "未运行")) : "检测中").append('\n');
                 sb.append("通道：").append(channelText)
                         .append('（').append(viaShizuku ? "Sui / Shizuku" : "Root").append("）\n");
+                sb.append("深色开关：").append(darkOn() ? "已开启" : "已关闭").append('\n');
                 sb.append("商店：").append(storePkg.isEmpty() ? "未确定" : storePkg).append('\n');
                 sb.append("商店状态：").append(storeSuspendedKnown
                         ? (storeSuspended ? "已挂起" : "正常") : "未知").append('\n');
@@ -2962,6 +2985,18 @@ public class MainActivity extends Activity {
                 String le = prefs.getString("last_error", "");
                 if (!le.isEmpty()) sb.append("最近错误：").append(le).append('\n');
                 if (env != null) sb.append("深色环境：").append(env.verdict).append('\n');
+                java.io.File dir = new java.io.File(getFilesDir(), "theme-packs");
+                java.io.File[] packs = dir.listFiles();
+                if (packs == null || packs.length == 0) {
+                    sb.append("补齐包：无\n");
+                } else {
+                    sb.append("补齐包：");
+                    for (java.io.File f : packs) {
+                        sb.append(f.getName()).append('(').append(f.length()).append(") ");
+                    }
+                    sb.append('\n');
+                }
+                sb.append("\n--- 主题 / 商店 ---\n").append(e.out).append(e.err);
                 sb.append("\n--- 通道 ---\n").append(r.out).append(r.err);
                 sb.append("\n--- 最近操作 ---\n").append(prefs.getString("last_log", "无"));
                 final String text = sb.toString();
@@ -2975,8 +3010,6 @@ public class MainActivity extends Activity {
             }
         });
     }
-
-    /** 可滚动、可复制 / 分享的文本弹窗。 */
     private void showShareable(final String title, final String text) {
         if (!canShowDialog()) {
             copyText(text);
