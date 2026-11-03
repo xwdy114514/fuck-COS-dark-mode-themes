@@ -138,6 +138,7 @@ public class MainActivity extends Activity {
     private String themesState = "检测中…";
     private boolean storeSuspended;
     private boolean storeSuspendedKnown;
+    private boolean unlockPrompted;
     private boolean rootReady;
     private boolean rootChecked;
     private String channelText = "—";
@@ -1830,6 +1831,7 @@ public class MainActivity extends Activity {
                                         + ("INACCESSIBLE".equals(state) ? " · 无目录权限" : "");
                         render();
                         refreshGuide();
+                        maybePromptLocked();
                     }
                 });
             }
@@ -1886,6 +1888,59 @@ public class MainActivity extends Activity {
 
     private ShellRunner.Result sh(String script, long timeout, boolean viaShizuku) {
         return viaShizuku ? ShizukuBridge.shell(script, timeout) : RootShell.shell(script, timeout);
+    }
+
+    /** 商店被挂起且 Themes 是空占位文件时，主动问一次要不要处理。 */
+    private void maybePromptLocked() {
+        boolean bad = storeSuspendedKnown && storeSuspended && themesState.startsWith("已锁定");
+        if (!bad) {
+            unlockPrompted = false;
+            return;
+        }
+        if (unlockPrompted || !canShowDialog() || !channelReady()) return;
+        unlockPrompted = true;
+        new AlertDialog.Builder(this)
+                .setTitle("主题商店被锁定")
+                .setMessage("检测到主题商店处于挂起状态，且 Themes 是空占位文件。\n\n"
+                        + "这会导致商店打不开，也没法恢复默认主题。\n\n"
+                        + "要现在解冻商店并删除这个空文件吗？")
+                .setPositiveButton("处理", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int w) {
+                        handleLockedState();
+                    }
+                })
+                .setNegativeButton("暂不", null)
+                .show();
+    }
+
+    private void handleLockedState() {
+        final String pkg = (storePkg == null || storePkg.isEmpty())
+                ? "com.heytap.themestore" : storePkg;
+        final boolean useRoot = rootReady;
+        final boolean viaShizuku = !useRoot && ShizukuBridge.granted();
+        toast("正在解冻主题商店…");
+        exec.execute(new Runnable() {
+            @Override
+            public void run() {
+                String msg;
+                try {
+                    ShellRunner.Result r = sh(ThemeEngine.unlock(pkg, useRoot), 20000, viaShizuku);
+                    msg = ThemeEngine.operationSucceeded(r.out, false)
+                            ? "已解冻并删除空文件" : "处理未确认（检查 Root / Shizuku）";
+                } catch (Throwable t) {
+                    msg = "处理失败：" + t;
+                }
+                final String m = msg;
+                post(new Runnable() {
+                    @Override
+                    public void run() {
+                        toast(m);
+                        refresh();
+                    }
+                });
+            }
+        });
     }
 
     private boolean channelReady() {
