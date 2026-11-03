@@ -64,4 +64,19 @@ public final class ShizukuBridge {
             }
         }, command, timeoutMs);
     }
+
+    /** 起一个 Shizuku shell 进程（stdout 当字节流用），用于把外部文件流式读进 app 缓存。 */
+    public static Process process(final String command) throws Exception {
+        Method method = Shizuku.class.getDeclaredMethod(
+                "newProcess", String[].class, String[].class, String.class);
+        method.setAccessible(true);
+        try {
+            return (Process) method.invoke(null,
+                    new Object[]{new String[]{"sh", "-c", command}, null, null});
+        } catch (InvocationTargetException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw new IOException("远端进程启动失败", cause);
+        }
+    }
 }

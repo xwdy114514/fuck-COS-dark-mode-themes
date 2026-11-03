@@ -1,6 +1,6 @@
 #!/system/bin/sh
-# MCTGA 0.5.4-beta · 深色主题适配 + 主题常驻 融合版构建脚本
-# 用法：sh build.sh（在工程根目录；可用 TOOLCHAIN_PREFIX / ANDROID_JAR / XPOSED_API / KEYSTORE 覆盖）
+# MCTGA · 深色主题适配 + 主题常驻 · 构建脚本
+# 用法：sh build.sh（工程根目录；TOOLCHAIN_PREFIX / ANDROID_JAR / XPOSED_API / KEYSTORE 可覆盖）
 set -e
 
 PROJ=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -9,13 +9,13 @@ P=${TOOLCHAIN_PREFIX:-/data/local/tmp/tc/prefix}
 JAVA_HOME=${JAVA_HOME:-$P/lib/jvm/java-21-openjdk}
 JAVA="$JAVA_HOME/bin"
 AJ=${ANDROID_JAR:-/data/local/tmp/sdk/android-35/android.jar}
-XP=${XPOSED_API:-/data/local/tmp/cosnight/XposedBridgeAPI-82.jar}
-[ -f "$XP" ] || XP="$PROJ/tools/XposedBridgeAPI-82.jar"
-KS=${KEYSTORE:-/data/local/tmp/cosnight/eta.keystore}
-[ -f "$KS" ] || KS="$PROJ/tools/eta.keystore"
+XP=${XPOSED_API:-$PROJ/tools/XposedBridgeAPI-82.jar}
+KS=${KEYSTORE:-$PROJ/tools/eta.keystore}
 SH="$MOD/dependencies"
-LIBS="$SH/api.jar:$SH/provider.jar:$SH/aidl.jar:$SH/shared.jar"
-VERSION=0.3
+LIBS="$SH/api.jar:$SH/provider.jar:$SH/aidl.jar:$SH/shared.jar:$SH/commons-compress-1.21.jar:$SH/xz-1.9.jar"
+# 版本号只有一个来源：module/AndroidManifest.xml 的 versionName，不再手改这里
+VERSION=$(sed -n 's/.*android:versionName="\([^"]*\)".*/\1/p' "$MOD/AndroidManifest.xml" | head -1)
+[ -n "$VERSION" ] || { echo "读不到 AndroidManifest.xml 里的 versionName"; exit 1; }
 
 OUT="$PROJ/out"
 B="$OUT/build"
@@ -32,7 +32,7 @@ done
 echo "== aapt2 =="
 "$P/bin/aapt2" compile --dir "$MOD/res" -o "$B/res.zip"
 "$P/bin/aapt2" link -o "$B/base.apk" -I "$AJ" --manifest "$MOD/AndroidManifest.xml" \
-  "$B/res.zip" --min-sdk-version 29 --target-sdk-version 35 --auto-add-overlay
+  "$B/res.zip" --min-sdk-version 30 --target-sdk-version 35 --auto-add-overlay
 
 echo "== javac =="
 find "$MOD/src" -name '*.java' > "$B/sources.txt"
@@ -41,10 +41,10 @@ find "$MOD/src" -name '*.java' > "$B/sources.txt"
 
 echo "== d8 =="
 "$JAVA/java" -cp "$P/share/java/d8.jar" com.android.tools.r8.D8 \
-  --release --lib "$AJ" --min-api 26 --output "$B/dex" \
+  --release --lib "$AJ" --min-api 30 --output "$B/dex" \
   "$SH/api.jar" "$SH/provider.jar" "$SH/aidl.jar" "$SH/shared.jar" \
+  "$SH/commons-compress-1.21.jar" "$SH/xz-1.9.jar" \
   $(find "$B/classes" -name '*.class')
-ls -l "$B/dex"
 
 echo "== 打包 =="
 cp -f "$B/base.apk" "$B/unsigned.apk"

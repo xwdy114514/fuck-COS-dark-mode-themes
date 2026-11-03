@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="xwdy.deepseek.test"
-    android:versionCode="98"
-    android:versionName="0.3">
+    android:versionCode="152"
+    android:versionName="0.4">
 
-    <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35" />
+    <uses-sdk android:minSdkVersion="30" android:targetSdkVersion="35" />
 
     <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
 
@@ -20,14 +20,10 @@
     <application
         android:allowBackup="false"
         android:hasCode="true"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="MCTGA"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
-
-        <provider
-            android:name=".PackProvider"
-            android:authorities="xwdy.deepseek.test.packs"
-            android:exported="true"
-            android:grantUriPermissions="true" />
 
         <activity
             android:name=".MainActivity"
@@ -38,6 +34,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <provider
+            android:name=".PackProvider"
+            android:authorities="xwdy.deepseek.test.packs"
+            android:exported="true"
+            android:grantUriPermissions="true" />
 
         <provider
             android:name="rikka.shizuku.ShizukuProvider"

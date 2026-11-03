@@ -35,4 +35,17 @@ public final class RootShell {
         ShellRunner.Result r = shell("id -u", 10000);
         return r.ok() && "0".equals(r.out.trim());
     }
+
+    /** 起一个 root shell 进程（stdout 当字节流用），用于把外部文件流式读进 app 缓存。 */
+    public static Process process(String command) throws Exception {
+        Exception last = null;
+        for (String su : SU_PATHS) {
+            try {
+                return new ProcessBuilder(su, "-c", command).start();
+            } catch (Exception e) {
+                last = e;
+            }
+        }
+        throw last != null ? last : new java.io.IOException("su not found");
+    }
 }

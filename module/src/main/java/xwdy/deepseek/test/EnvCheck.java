@@ -96,7 +96,15 @@ public final class EnvCheck {
             d.append(" · 无 Root，读不到 LSPosed 与 /data/theme");
         }
 
-        if (s.timedOut) {
+        if (!OsVersion.colorOs()) {
+            r.level = LEVEL_UNAVAILABLE;
+            r.verdict = OsVersion.unsupportedHint();
+            d.insert(0, OsVersion.label() + " · ");
+        } else if (!OsVersion.supported()) {
+            r.level = LEVEL_UNAVAILABLE;
+            r.verdict = OsVersion.unsupportedHint();
+            d.insert(0, OsVersion.label() + " · ");
+        } else if (s.timedOut) {
             r.level = LEVEL_UNKNOWN;
             r.verdict = "检测超时，结果未知";
         } else if (!r.rootOk) {

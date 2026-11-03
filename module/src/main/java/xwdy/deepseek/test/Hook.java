@@ -59,19 +59,21 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
             "com.android.stk",
     };
 
-    /** 深色适配只支持 ColorOS 17（oplusrom V17.x）。 */
-    private static Boolean sOs17;
+    /**
+     * 只支持 ColorOS 11 及以上（含 11）。版本串由 OsVersion 解析，
+     * 先走模块自己的 C 解析，退化到 shell。解析不出来按不支持处理。
+     */
+    private static Boolean sOsSupported;
 
-    private static boolean isOplus17() {
-        if (sOs17 != null) return sOs17;
+    private static boolean isOplusSupported() {
+        if (sOsSupported != null) return sOsSupported;
         try {
-            String rom = (String) Class.forName("android.os.SystemProperties")
-                    .getMethod("get", String.class).invoke(null, "ro.build.version.oplusrom");
-            sOs17 = rom != null && rom.startsWith("V17");
+            sOsSupported = OsVersion.supported();
         } catch (Throwable t) {
-            sOs17 = false;
+            sOsSupported = false;
         }
-        return sOs17;
+        if (!sOsSupported) log("skip: not ColorOS/too old (" + OsVersion.reason() + ")");
+        return sOsSupported;
     }
 
     private static void log(String s) {
@@ -251,30 +253,6 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
             if (Boolean.TRUE.equals(has)) {
                 p.args[idx] = np;
                 logv("night -> " + np);
-            }
-        } catch (Throwable ignored) {
-        }
-    }
-
-    private static void rewriteStream(XC_MethodHook.MethodHookParam p, int idx) {
-        if (!isNight()) return;
-        Object o = p.args[idx];
-        if (!(o instanceof String)) return;
-        String path = (String) o;
-        if (!path.startsWith("res/drawable")) return;
-        int slash = path.lastIndexOf('/');
-        if (slash < 0) return;
-        String name = path.substring(slash + 1);
-        String np = "res/drawable-night-xxhdpi/" + name;
-        try {
-            Object tr = XposedHelpers.getObjectField(p.thisObject, "mThemeResources");
-            if (tr == null) return;
-            Object zip = XposedHelpers.getObjectField(tr, "mPackageZipFile");
-            if (zip == null) return;
-            Object has = XposedHelpers.callMethod(zip, "containsEntry", np);
-            if (Boolean.TRUE.equals(has)) {
-                p.args[idx] = np;
-                logv("stream night -> " + np);
             }
         } catch (Throwable ignored) {
         }
@@ -684,8 +662,8 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
             return;
         }
 
-        if (!isOplus17()) {
-            log("skip: not ColorOS17 pkg=" + lp.packageName);
+        if (!isOplusSupported()) {
+            log("skip: unsupported OS pkg=" + lp.packageName);
             return;
         }
         log("loaded pkg=" + lp.packageName);
@@ -696,6 +674,7 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
                 break;
             }
         }
+
 
 
         if ("com.android.settings".equals(lp.packageName)) {
