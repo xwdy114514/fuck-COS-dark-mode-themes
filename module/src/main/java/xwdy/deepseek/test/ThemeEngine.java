@@ -83,13 +83,17 @@ public final class ThemeEngine {
         return base(pkg) + guard(allowRoot)
                 + "pm unsuspend --user 0 \"$PKG\" 2>/dev/null || :\n"
                 + "pm enable --user 0 \"$PKG\" 2>/dev/null || :\n"
+                // ColorOS 上同一包可能被 root 与 shell 各挂起一次，只解一边会一直显示“已挂起”
+                + "if [ \"$(id -u)\" = 0 ]; then su 2000 -c \"pm unsuspend --user 0 $PKG\" >/dev/null 2>&1 || :; fi\n"
                 + "if empty; then rm -f \"$T\" || fail PLACEHOLDER_REMOVE; "
                 + "elif [ -e \"$T\" ] && [ ! -d \"$T\" ]; then fail EXISTING_FILE; fi\n"
                 // 锁定前若把 Themes 目录挪走过，这里按最新的一份还原
                 + "B=$(ls -d \"$P\"/.Themes.lockdir-* 2>/dev/null | sort | tail -n 1)\n"
                 + "if [ -n \"$B\" ] && [ ! -e \"$T\" ]; then "
                 + "mv \"$B\" \"$T\" || fail RESTORE_FAILED; echo INFO:DIR_RESTORED; fi\n"
-                + "echo RESULT:UNLOCKED\n";
+                + "V=$(suspended); echo \"SUSPENDED:$V\"\n"
+                + "if [ \"$V\" = false ]; then echo RESULT:UNLOCKED; "
+                + "else echo INFO:STILL_SUSPENDED; fi\n";
     }
 
     /** 只解冻：解除挂起（suspended）+ 恢复启用状态，不动 Themes 文件。 */

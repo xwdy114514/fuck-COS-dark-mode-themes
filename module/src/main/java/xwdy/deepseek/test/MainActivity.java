@@ -1217,6 +1217,7 @@ public class MainActivity extends Activity {
                 ? "com.heytap.themestore" : storePkg;
         final boolean useRoot = rootReady;
         final boolean viaShizuku = !useRoot && ShizukuBridge.granted();
+        setLog("最近操作：开始解冻商店（root=" + useRoot + "）");
         toast("正在解冻主题商店…");
         exec.execute(new Runnable() {
             @Override
@@ -1928,6 +1929,8 @@ public class MainActivity extends Activity {
                     msg = ThemeEngine.operationSucceeded(r.out, false)
                             ? "已解冻并删除空文件" : "处理未确认（检查 Root / Shizuku）";
                 } catch (Throwable t) {
+                    prefs.edit().putString("last_error", "handleLockedState: " + t).apply();
+                    msg = "处理失败：" + t;
                     msg = "处理失败：" + t;
                 }
                 final String m = msg;
