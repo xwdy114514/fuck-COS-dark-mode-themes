@@ -25,10 +25,9 @@ mkdir -p "$B/classes" "$B/dex" "$B/assets" "$OUT"
 export LD_LIBRARY_PATH="$JAVA_HOME/lib:$JAVA_HOME/lib/server:$P/lib:${LD_LIBRARY_PATH:-}"
 
 for F in "$AJ" "$XP" "$SH/api.jar" "$SH/provider.jar" "$SH/aidl.jar" "$SH/shared.jar" \
-         "$MOD/assets/bg_day.png" "$MOD/assets/bg_night.png"; do
+         "$MOD/assets/xposed_init"; do
   [ -f "$F" ] || { echo "缺少依赖: $F"; exit 1; }
 done
-
 echo "== aapt2 =="
 "$P/bin/aapt2" compile --dir "$MOD/res" -o "$B/res.zip"
 "$P/bin/aapt2" link -o "$B/base.apk" -I "$AJ" --manifest "$MOD/AndroidManifest.xml" \
@@ -48,12 +47,10 @@ echo "== d8 =="
 
 echo "== 打包 =="
 cp -f "$B/base.apk" "$B/unsigned.apk"
-cp -f "$MOD/assets/bg_day.png" "$MOD/assets/bg_night.png" "$B/"
-printf 'xwdy.deepseek.test.Hook\n' > "$B/assets/xposed_init"
+cp -f "$MOD/assets/xposed_init" "$B/assets/xposed_init"
 cd "$B" && "$JAVA/jar" uf "$B/unsigned.apk" -C "$B/dex" classes.dex
-"$JAVA/jar" uf "$B/unsigned.apk" -C "$B" bg_day.png -C "$B" bg_night.png -C "$B" assets/xposed_init
+cd "$B" && "$JAVA/jar" uf "$B/unsigned.apk" -C "$B" assets/xposed_init
 cd "$PROJ"
-
 SIGN_IN="$B/unsigned.apk"
 if [ -n "${ALIGN_CLASSES:-}" ]; then
   echo "== 对齐 =="
