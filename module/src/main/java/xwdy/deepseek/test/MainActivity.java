@@ -2576,6 +2576,14 @@ public class MainActivity extends Activity {
                     String cfgText = "";
                     if (rootReady) { try { cfgText = RootShell.shell("cat /data/theme/config 2>/dev/null", 10000).out; } catch (Throwable ignored) { } }
                     int packs = buildPacks(cache, cfgText);
+                    ShellRunner.Result sync = sh(
+                            "mkdir -p /data/local/tmp/mctga-packs && "
+                                    + "chmod 755 /data/local/tmp/mctga-packs && "
+                                    + "cp -f " + getFilesDir().getAbsolutePath() + "/theme-packs/* "
+                                    + "/data/local/tmp/mctga-packs/ 2>/dev/null; "
+                                    + "chmod 644 /data/local/tmp/mctga-packs/* 2>/dev/null; "
+                                    + "ls /data/local/tmp/mctga-packs | wc -l", 30000,
+                            !rootReady && ShizukuBridge.granted());
                     if (rootReady) {
                         RootShell.shell("am force-stop com.android.contacts; am force-stop com.android.mms", 15000);
                     }
@@ -2691,6 +2699,49 @@ public class MainActivity extends Activity {
     /** 生成只含 com.* 的规范化副本：本机变体改回正式包名，其它变体丢弃。 */
 
     /** 把 .theme 里的各包（本机变体 + 匹配的夜间图）写进本应用 files/theme-packs，不动 /data/theme。 */
+    /** 从 wallpaper zip 里挑最匹配屏幕宽度的 png，返回原始字节。 */
+    private byte[] pickWallpaperPng(java.io.File zip) {
+        java.util.zip.ZipFile zf = null;
+        try {
+            zf = new java.util.zip.ZipFile(zip);
+            int want = getResources().getDisplayMetrics().widthPixels;
+            java.util.zip.ZipEntry best = null;
+            long bestScore = Long.MAX_VALUE;
+            java.util.Enumeration<? extends java.util.zip.ZipEntry> es = zf.entries();
+            while (es.hasMoreElements()) {
+                java.util.zip.ZipEntry e = es.nextElement();
+                String n = e.getName();
+                if (!n.endsWith(".png")) continue;
+                long res = 0;
+                java.util.regex.Matcher m = java.util.regex.Pattern
+                        .compile("-(\\d+)x(\\d+)").matcher(n);
+                if (m.find()) {
+                    try {
+                        res = Math.min(Long.parseLong(m.group(1)), Long.parseLong(m.group(2)));
+                    } catch (Throwable ignored) {
+                    }
+                }
+                long score = res == 0 ? 100000 : Math.abs(res - want);
+                if (score < bestScore) {
+                    bestScore = score;
+                    best = e;
+                }
+            }
+            if (best == null) return null;
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            java.io.InputStream is = zf.getInputStream(best);
+            byte[] b = new byte[65536];
+            int n;
+            while ((n = is.read(b)) > 0) bo.write(b, 0, n);
+            is.close();
+            return bo.toByteArray();
+        } catch (Throwable t) {
+            return null;
+        } finally {
+            if (zf != null) try { zf.close(); } catch (Throwable ignored) { }
+        }
+    }
+
     private int buildPacks(File theme, String cfgText) throws Exception {
         java.util.Map<String, String> map = variantMap(theme, cfgText);
         java.util.zip.ZipFile zf = new java.util.zip.ZipFile(theme);
@@ -2763,6 +2814,40 @@ public class MainActivity extends Activity {
                 }
                 if (out.exists()) out.delete();
                 if (tmp.renameTo(out)) count++;
+            }
+            java.util.zip.ZipEntry we = zf.getEntry("wallpaper");
+            if (we != null) {
+                // 1) 原样保存 wallpaper（zip）
+                java.io.File wpt = new java.io.File(dir, "wallpaper.tmp");
+                java.io.InputStream wis = zf.getInputStream(we);
+                java.io.FileOutputStream wos = new java.io.FileOutputStream(wpt);
+                byte[] wb = new byte[65536];
+                int wn;
+                while ((wn = wis.read(wb)) > 0) wos.write(wb, 0, wn);
+                wos.close();
+                wis.close();
+                java.io.File wout = new java.io.File(dir, "wallpaper");
+                if (wout.exists()) wout.delete();
+                if (wpt.renameTo(wout)) count++;
+
+                // 2) 顺便解出最匹配屏幕的一张，存成 wallpaper.png
+                java.io.InputStream zis = zf.getInputStream(we);
+                java.io.File pngTmp = new java.io.File(dir, "wp.png.tmp");
+                java.io.FileOutputStream pngOut = new java.io.FileOutputStream(pngTmp);
+                byte[] pb = new byte[65536];
+                int pn;
+                while ((pn = zis.read(pb)) > 0) pngOut.write(pb, 0, pn);
+                pngOut.close();
+                zis.close();
+                byte[] picked = pickWallpaperPng(pngTmp);
+                java.io.File pngOutFile = new java.io.File(dir, "wallpaper.png");
+                if (picked != null) {
+                    if (pngOutFile.exists()) pngOutFile.delete();
+                    java.io.FileOutputStream po = new java.io.FileOutputStream(pngOutFile);
+                    po.write(picked);
+                    po.close();
+                }
+                pngTmp.delete();
             }
         } finally {
             zf.close();
