@@ -114,43 +114,23 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
         }
     }
 
+    /** 主题里有没有这个包；没有就不注入插画，避免把没素材的界面也套上。 */
+
     /** 从 MCTGA 的 ContentProvider 取该包的主题 zip 到目标应用缓存；没有就返回 null。 */
+    /** 公共资源目录：补齐时由 App 用 root/shell 写到这，目标进程直接读，不经过 Provider。 */
+    private static final String PACK_DIR = "/data/local/tmp/mctga-packs/";
+
     private static String packBaseDir(String pkg) {
         try {
-            Object app = Class.forName("android.app.ActivityThread")
-                    .getMethod("currentApplication").invoke(null);
-            if (app == null) return null;
-            android.content.Context ctx = (android.content.Context) app;
-            android.net.Uri u = android.net.Uri.parse(
-                    "content://xwdy.deepseek.test.packs/" + pkg);
-            long size = -1;
-            android.database.Cursor c = ctx.getContentResolver()
-                    .query(u, null, null, null, null);
-            if (c != null) {
-                try {
-                    if (c.moveToFirst()) size = c.getLong(0);
-                } finally {
-                    c.close();
-                }
-            }
-            if (size <= 0) return null;
-            java.io.File dir = new java.io.File(ctx.getCacheDir(), "mctga-packs");
-            if (!dir.isDirectory() && !dir.mkdirs()) return null;
-            java.io.File f = new java.io.File(dir, pkg);
-            if (!f.isFile() || f.length() != size) {
-                java.io.InputStream in = ctx.getContentResolver().openInputStream(u);
-                if (in == null) return null;
-                java.io.FileOutputStream out = new java.io.FileOutputStream(f);
-                byte[] b = new byte[65536];
-                int n;
-                while ((n = in.read(b)) > 0) out.write(b, 0, n);
-                out.close();
-                in.close();
-            }
-            return dir.getAbsolutePath() + "/";
-        } catch (Throwable t) {
-            return null;
+            java.io.File f = new java.io.File(PACK_DIR, pkg);
+            if (f.isFile() && f.length() > 0) return PACK_DIR;
+        } catch (Throwable ignored) {
         }
+        return null;
+    }
+
+    private static String packBaseDir(String pkg, Object activity) {
+        return packBaseDir(pkg);
     }
 
     /** 判断主题 zip 里有没有夜间资源；拿不到 ZipFile 时按“有”处理，保持原行为。 */
@@ -181,6 +161,11 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
     }
 
     /** 判断资源名是不是顶栏类（appbar／toolbar／abl…）。 */
+    private static boolean containsBg(String p) {
+        for (String s : HOOK_BG) if (s.equals(p)) return true;
+        return false;
+    }
+
     private static boolean isBarId(String ln) {
         return ln.contains("appbar") || ln.contains("toolbar")
                 || ln.contains("header") || ln.contains("statusbar")
@@ -267,21 +252,128 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
         log("MCTGA loaded");
     }
 
-    private static Drawable loadBg(Context c) {
-        String key = isNight() ? "bg_night.png" : "bg_day.png";
-        if (sBg != null && key.equals(sBgKey)) return sBg;
+
+    /**
+    /**
+     * 主题作者在自己的主题包内放这张图，模块会把它当作应用背景：
+     *   res/drawable-xxhdpi/coui_mctga_bg.9.png        浅色
+     *   res/drawable-night-xxhdpi/coui_mctga_bg.9.png  深色
+     * 兼容：没有 mctga 专用图时，回退到同目录的 coui_window_background_selector.9.png。
+     */
+    private static final String BG_DAY = "res/drawable-xxhdpi/coui_mctga_bg.9.png";
+    private static final String BG_NIGHT = "res/drawable-night-xxhdpi/coui_mctga_bg.9.png";
+    private static final String BG_DAY_ALT = "res/drawable-xxhdpi/coui_window_background_selector.9.png";
+    private static final String BG_NIGHT_ALT = "res/drawable-night-xxhdpi/coui_window_background_selector.9.png";
+
+    private static String sCurPkg;
+
+    /** 蒙层：深色压暗、亮色提亮，缓解插画与 UI 文字的对比冲突；不改主题包。 */
+    private static final int MASK_NIGHT = 0x8C000000; // 55% 黑
+    private static final int MASK_DAY = 0x99FFFFFF;   // 60% 白
+
+    private static Drawable withMask(Drawable base, boolean night) {
+        if (base == null) return null;
         try {
-            java.io.InputStream is = Hook.class.getClassLoader().getResourceAsStream(key);
-            if (is == null) {
-                log("bg not found: " + key);
+            int mask = night ? MASK_NIGHT : MASK_DAY;
+            android.graphics.drawable.LayerDrawable l =
+                    new android.graphics.drawable.LayerDrawable(
+                            new Drawable[]{base, new android.graphics.drawable.ColorDrawable(mask)});
+            return l;
+        } catch (Throwable t) {
+            log("mask fail " + t);
+            return base;
+        }
+    }
+
+    /** 资源层蒙层：主题窗口背景走系统主题资源（contacts/mms/settings 等），不经 loadBg。 */
+    private static final java.util.HashMap<Integer, Boolean> sBgResIds =
+            new java.util.HashMap<Integer, Boolean>();
+
+    private static boolean isWindowBgName(String n) {
+        if (n == null) return false;
+        return n.startsWith("coui_window_background") || n.equals("oplus_window_background")
+                || n.equals("coui_window_bg_with_card") || n.equals("coui_appbar_default_bg");
+    }
+
+    private static boolean alreadyMasked(Drawable d) {
+        try {
+            if (!(d instanceof android.graphics.drawable.LayerDrawable)) return false;
+            android.graphics.drawable.LayerDrawable l = (android.graphics.drawable.LayerDrawable) d;
+            int n = l.getNumberOfLayers();
+            if (n < 2) return false;
+            Drawable top = l.getDrawable(n - 1);
+            if (!(top instanceof android.graphics.drawable.ColorDrawable)) return false;
+            int c = ((android.graphics.drawable.ColorDrawable) top).getColor();
+            return c == MASK_NIGHT || c == MASK_DAY;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private static void hookResMask(XC_LoadPackage.LoadPackageParam lp) {
+        XC_MethodHook h = new XC_MethodHook() {
+            @Override
+            protected void afterHookedMethod(MethodHookParam p) {
+                try {
+                    Object r = p.getResult();
+                    if (!(r instanceof Drawable)) return;
+                    Drawable dr = (Drawable) r;
+                    if (alreadyMasked(dr)) return;
+                    if (p.args == null || p.args.length == 0) return;
+                    int id = 0;
+                    Object a0 = p.args[0];
+                    if (a0 instanceof android.util.TypedValue) {
+                        id = ((android.util.TypedValue) a0).resourceId;
+                    } else {
+                        for (int i = 0; i < p.args.length; i++) {
+                            if (p.args[i] instanceof Integer) {
+                                id = ((Integer) p.args[i]).intValue();
+                                break;
+                            }
+                        }
+                    }
+                    if (id == 0) return;
+                    Boolean hit = sBgResIds.get(Integer.valueOf(id));
+                    if (hit == null) {
+                        String n = null;
+                        try {
+                            n = ((android.content.res.Resources) p.thisObject).getResourceEntryName(id);
+                        } catch (Throwable ignored) {
+                        }
+                        hit = Boolean.valueOf(isWindowBgName(n));
+                        sBgResIds.put(Integer.valueOf(id), hit);
+                    }
+                    if (!hit.booleanValue()) return;
+                    p.setResult(withMask(dr, isNight()));
+                } catch (Throwable ignored) {
+                }
+            }
+        };
+        try {
+            XposedBridge.hookAllMethods(android.content.res.Resources.class, "loadDrawable", h);
+            XposedBridge.hookAllMethods(android.content.res.Resources.class, "getDrawable", h);
+            XposedBridge.hookAllMethods(android.content.res.Resources.class, "getDrawableForDensity", h);
+            log("hooked res mask");
+        } catch (Throwable t) {
+            log("hook res mask fail " + t);
+        }
+    }
+
+    private static Drawable loadBg(Context c) {
+        try {
+            boolean night = isNight();
+            String main = night ? BG_NIGHT : BG_DAY;
+            String alt = night ? BG_NIGHT_ALT : BG_DAY_ALT;
+            String cand = (sCurPkg == null ? "" : sCurPkg) + ":" + main;
+            if (sBg != null && cand.equals(sBgKey)) return sBg;
+            Bitmap bm = loadFromPacks(sCurPkg, main, alt);
+            if (bm == null) {
+                log("bg missing " + main + " pkg=" + sCurPkg);
                 return null;
             }
-            Bitmap bm = BitmapFactory.decodeStream(is);
-            is.close();
-            if (bm != null) {
-                sBg = new BitmapDrawable(c.getResources(), bm);
-                sBgKey = key;
-            }
+            log("bg ok " + bm.getWidth() + "x" + bm.getHeight() + " pkg=" + sCurPkg);
+            sBg = withMask(new BitmapDrawable(c.getResources(), bm), night);
+            sBgKey = cand;
             return sBg;
         } catch (Throwable t) {
             log("loadBg fail " + t);
@@ -289,143 +381,168 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
         }
     }
 
-    private static void hookActivityBg(XC_LoadPackage.LoadPackageParam lp) {
-        try {
-            XposedBridge.hookAllMethods(android.view.View.class, "setBackgroundColor", new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam p) {
-                    try {
-                        int c = ((Integer) p.args[0]).intValue();
-                        if (c != 0xFF000000 && c != 0xFFFFFFFF) return;
-                        android.view.View v = (android.view.View) p.thisObject;
-                        String n = v.getResources().getResourceName(v.getId());
-                        if (n == null) return;
-                        String ln = n.toLowerCase();
-                        if (ln.contains("appbar") || ln.contains("toolbar") || ln.contains("header")) {
-                            v.setBackground(null);
-                            logv("cleared bg color on " + n);
-                        }
-                    } catch (Throwable ignored) {
-                    }
-                }
-            });
-            XC_MethodHook barBg = new XC_MethodHook() {
-                @Override
-                protected void beforeHookedMethod(MethodHookParam p) {
-                    try {
-                        android.view.View v = (android.view.View) p.thisObject;
-                        int id = v.getId();
-                        if (id == android.view.View.NO_ID) return;
-                        String n = v.getResources().getResourceName(id);
-                        if (n != null && isBarId(n.toLowerCase())) p.setResult(null);
-                    } catch (Throwable ignored) {
-                    }
-                }
+    /** 先找本应用自己的主题包，取不到再扫其它包。 */
+    private static Bitmap loadFromPacks(String pkg, String entry, String alt) {
+        java.io.File own = null;
+        if (pkg != null) {
+            java.io.File[] cands = {
+                    new java.io.File(PACK_DIR, pkg),
+                    new java.io.File("/data/theme/" + pkg),
             };
-            XposedBridge.hookAllMethods(android.view.View.class, "setBackground", barBg);
-            XposedBridge.hookAllMethods(android.view.View.class, "setBackgroundDrawable", barBg);
-            XposedBridge.hookAllMethods(android.view.View.class, "setBackgroundResource", barBg);
-            XposedHelpers.findAndHookMethod("android.app.Activity", lp.classLoader, "onResume",
-                    new XC_MethodHook() {
-                        @Override
-                        protected void afterHookedMethod(MethodHookParam p) {
-                            try {
-                                Object o = p.thisObject;
-                                if (!(o instanceof android.app.Activity)) return;
-                                android.app.Activity act = (android.app.Activity) o;
-                                if (isEditor(act.getComponentName().getClassName())) {
-                                    log("skip editor " + act.getComponentName().getClassName());
-                                    return;
-                                }
-                                Window w = act.getWindow();
-                                if (w == null) return;
-                                Drawable d = loadBg(act);
-                                if (d == null) return;
-                                android.view.View decor = w.getDecorView();
-                                if (decor == null) return;
-                                final android.view.View fDecor = decor;
-                                final String pkg = lp.packageName;
-                                decor.setBackground(d);
-                                applyAlarmFix(fDecor, pkg, false);
-                                decor.postDelayed(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        try {
-                                            applyAlarmFix(fDecor, pkg, false);
-                                        } catch (Throwable ignored) {
-                                        }
-                                    }
-                                }, 400);
-                                decor.postDelayed(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        try {
-                                            boolean wantDump = dumpEnabled();
-                                            applyAlarmFix(fDecor, pkg, wantDump);
-                                        } catch (Throwable ignored) {
-                                        }
-                                    }
-                                }, 1600);
-                                final android.view.ViewTreeObserver.OnGlobalLayoutListener gll =
-                                        new android.view.ViewTreeObserver.OnGlobalLayoutListener() {                                    @Override
-                                    public void onGlobalLayout() {
-                                        if (sPending) return;
-                                        sPending = true;
-                                        fDecor.post(new Runnable() {
-                                            @Override
-                                            public void run() {
-                                                sPending = false;
-                                                try {
-                                                    int n = clearScrims(fDecor, pkg);
-                                                    long now = System.currentTimeMillis();
-                                                    if (now - sLastDeep > 300) {
-                                                        sLastDeep = now;
-                                                        n += clearBgCount(fDecor, isDeep(pkg) ? 40 : 10);
-                                                        clearBarViews(fDecor, 0);
-                                                        fDecor.setBackground(loadBg(fDecor.getContext()));
-                                                    }
-                                                    int bid2 = fDecor.getContext().getResources()
-                                                            .getIdentifier("blur_overlay", "id", pkg);
-                                                    if (bid2 != 0) hideAllById(fDecor, bid2, 0);
-                                                    if (n > 0) logv("layout re-clear x" + n + " pkg=" + pkg);
-                                                } catch (Throwable ignored) {
-                                                }
-                                            }
-                                        });
-                                    }
-                                };
-                                if (sDecorRef == null || sDecorRef.get() != fDecor) {
-                                    sDecorRef = new java.lang.ref.WeakReference<android.view.View>(fDecor);
-                                    fDecor.getViewTreeObserver().addOnGlobalLayoutListener(gll);
-                                }
-                            } catch (Throwable ignored) {
-                            }
+            for (java.io.File f : cands) {
+                if (f.isFile()) {
+                    own = f;
+                    for (String e : new String[]{entry, alt}) {
+                        Bitmap bm = readZipEntry(f, e);
+                        if (bm != null) {
+                            log("bg from own " + f.getName() + " " + e);
+                            return bm;
                         }
-                    });
-            XposedHelpers.findAndHookMethod("android.app.Activity", lp.classLoader, "onCreate",
-                    android.os.Bundle.class, new XC_MethodHook() {
-                        @Override
-                        protected void afterHookedMethod(MethodHookParam p) {
-                            try {
-                                android.app.Activity act = (android.app.Activity) p.thisObject;
-                                if (isEditor(act.getComponentName().getClassName())) return;
-                                Window w = act.getWindow();
-                                if (w == null) return;
-                                android.view.View decor = w.getDecorView();
-                                if (decor == null) return;
-                                Drawable d = loadBg(act);
-                                if (d != null) {
-                                    decor.setBackground(d);
-                                    logv("onCreate bg " + act.getComponentName().getClassName());
-                                }
-                            } catch (Throwable ignored) {
-                            }
-                        }
-                    });
-            log("hooked health bg v2");
-        } catch (Throwable t) {
-            log("hook activity bg fail " + t);
+                    }
+                }
+            }
         }
+        java.util.List<java.io.File> packs = new java.util.ArrayList<java.io.File>();
+        java.io.File[] fs = new java.io.File(PACK_DIR).listFiles();
+        if (fs != null) for (java.io.File f : fs) if (f.isFile()) packs.add(f);
+        java.io.File[] ts = new java.io.File("/data/theme").listFiles();
+        if (ts != null) for (java.io.File f : ts) if (f.isFile()) packs.add(f);
+        for (String e : new String[]{entry, alt}) {
+            for (java.io.File pack : packs) {
+                if (own != null && pack.getAbsolutePath().equals(own.getAbsolutePath())) continue;
+                Bitmap bm = readZipEntry(pack, e);
+                if (bm != null) {
+                    log("bg from " + pack.getName() + " " + e);
+                    return bm;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static Bitmap readZipEntry(java.io.File zip, String entry) {
+        java.util.zip.ZipFile zf = null;
+        try {
+            zf = new java.util.zip.ZipFile(zip);
+            java.util.zip.ZipEntry e = zf.getEntry(entry);
+            if (e == null) return null;
+            java.io.InputStream is = zf.getInputStream(e);
+            Bitmap bm = BitmapFactory.decodeStream(is);
+            is.close();
+            return bm;
+        } catch (Throwable t) {
+            return null;
+        } finally {
+            if (zf != null) try { zf.close(); } catch (Throwable ignored) { }
+        }
+    }
+    private static Bitmap decodeWallpaper(java.io.File f) {
+        try {
+            java.util.zip.ZipFile zf = new java.util.zip.ZipFile(f);
+            try {
+                int sw, sh;
+                android.content.Context ctx = (android.content.Context) Class
+                        .forName("android.app.ActivityThread")
+                        .getMethod("currentApplication").invoke(null);
+                sw = ctx.getResources().getDisplayMetrics().widthPixels;
+                sh = ctx.getResources().getDisplayMetrics().heightPixels;
+                int want = Math.min(sw, sh);
+                log("wallpaper pick want=" + want);
+                java.util.zip.ZipEntry best = null;
+                long bestScore = Long.MAX_VALUE;
+                java.util.Enumeration<? extends java.util.zip.ZipEntry> es = zf.entries();
+                while (es.hasMoreElements()) {
+                    java.util.zip.ZipEntry e = es.nextElement();
+                    String n = e.getName();
+                    if (!n.endsWith(".png")) continue;
+                    long res = 0;
+                    java.util.regex.Matcher m = java.util.regex.Pattern
+                            .compile("-(\\d+)x(\\d+)").matcher(n);
+                    if (m.find()) {
+                        try {
+                            res = Math.min(Long.parseLong(m.group(1)),
+                                    Long.parseLong(m.group(2)));
+                        } catch (Throwable ignored) {
+                        }
+                    }
+                    long score = res == 0 ? 100000 : Math.abs(res - want);
+                    if (score < bestScore) {
+                        bestScore = score;
+                        best = e;
+                    }
+                }
+                if (best == null) {
+                    log("wallpaper no png entry");
+                    return null;
+                }
+                log("wallpaper entry " + best.getName() + " size=" + best.getSize());
+                java.io.InputStream is = zf.getInputStream(best);
+                Bitmap bm = BitmapFactory.decodeStream(is);
+                is.close();
+                if (bm == null) log("wallpaper decode null " + best.getName());
+                return bm;
+            } finally {
+                zf.close();
+            }
+        } catch (Throwable t) {
+            log("wallpaper zip fail " + t);
+            try {
+                return BitmapFactory.decodeFile(f.getAbsolutePath());
+            } catch (Throwable t2) {
+                return null;
+            }
+        }
+    }
+
+    private static void hookActivityBg(XC_LoadPackage.LoadPackageParam lp) {
+        XposedBridge.hookAllMethods(android.app.Activity.class, "onResume", new XC_MethodHook() {
+            @Override
+            protected void afterHookedMethod(MethodHookParam p) {
+                try {
+                    android.app.Activity act = (android.app.Activity) p.thisObject;
+                    String cls = act.getComponentName().getClassName();
+                    if (isEditor(cls)) {
+                        log("skip editor " + cls);
+                        return;
+                    }
+                    Window w = act.getWindow();
+                    if (w == null) return;
+                    Drawable d = loadBg(act);
+                    if (d == null) {
+                        log("onResume bg=null act=" + cls);
+                        return;
+                    }
+                    final android.view.View decor = w.getDecorView();
+                    if (decor == null) return;
+                    final String pkg = lp.packageName;
+                    sCurPkg = pkg;
+                    decor.setBackground(d);
+                    applyAlarmFix(decor, pkg, false);
+                    decor.postDelayed(new Runnable() {
+                        @Override
+                        public void run() {
+                            try {
+                                applyAlarmFix(decor, pkg, false);
+                            } catch (Throwable ignored) {
+                            }
+                        }
+                    }, 400);
+                    decor.postDelayed(new Runnable() {
+                        @Override
+                        public void run() {
+                            try {
+                                applyAlarmFix(decor, pkg, false);
+                            } catch (Throwable ignored) {
+                            }
+                        }
+                    }, 1600);
+                    XposedBridge.log("CosNightTheme: onResume bg=ok act=" + cls);
+                } catch (Throwable t) {
+                    XposedBridge.log("CosNightTheme: onResume fail " + t);
+                }
+            }
+        });
+        XposedBridge.log("CosNightTheme: onResume hooked");
     }
 
     private static int sDumpLines = 0;
@@ -500,12 +617,16 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
     private static long sLastDeep;
     private static java.lang.ref.WeakReference<android.view.View> sDecorRef;
 
+    /** 只清纯色/形状背景（容器底色），保留图片/9-patch 背景（主题按钮、图标）。 */
     private static int clearBgCount(android.view.View v, int depth) {
         if (v == null || depth < 0) return 0;
         int n = 0;
         try {
-            if (v.getBackground() != null) n++;
-            v.setBackground(null);
+            android.graphics.drawable.Drawable d = v.getBackground();
+            if (d != null && isPlainBg(d)) {
+                v.setBackground(null);
+                n++;
+            }
         } catch (Throwable ignored) {
         }
         if (v instanceof android.view.ViewGroup) {
@@ -515,6 +636,92 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
             }
         }
         return n;
+    }
+
+    /** 纯色、GradientDrawable、ColorDrawable、StateList 里全是纯色的，才算“底色”。 */
+    private static boolean isPlainBg(android.graphics.drawable.Drawable d) {
+        try {
+            String cls = d.getClass().getName();
+            if (cls.contains("BitmapDrawable") || cls.contains("NinePatch")) return false;
+            if (d instanceof android.graphics.drawable.BitmapDrawable) return false;
+            if (d instanceof android.graphics.drawable.NinePatchDrawable) return false;
+            if (d instanceof android.graphics.drawable.StateListDrawable) {
+                // 状态列表：看当前状态那张
+                android.graphics.drawable.Drawable cur = d.getCurrent();
+                return cur == null || isPlainBg(cur);
+            }
+            if (d instanceof android.graphics.drawable.LayerDrawable) {
+                android.graphics.drawable.LayerDrawable l = (android.graphics.drawable.LayerDrawable) d;
+                for (int i = 0; i < l.getNumberOfLayers(); i++) {
+                    if (!isPlainBg(l.getDrawable(i))) return false;
+                }
+                return true;
+            }
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** 清掉一层容器的背景（保留图片背景）。 */
+    private static void clearBg(android.view.View v, int depth) {
+        if (v == null || depth < 0) return;
+        try {
+            android.graphics.drawable.Drawable d = v.getBackground();
+            if (d != null && isPlainBg(d)) v.setBackground(null);
+        } catch (Throwable ignored) {
+        }
+        if (v instanceof android.view.ViewGroup) {
+            android.view.ViewGroup g = (android.view.ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) {
+                clearBg(g.getChildAt(i), depth - 1);
+            }
+        }
+    }
+    private static final String[] DEEP_CLEAR = {
+            "com.heytap.health",
+            "com.heytap.cloud",
+            "com.coloros.alarmclock",
+            "com.coloros.soundrecorder",
+            "com.coloros.digitalwellbeing",
+            "com.coloros.familyguard",
+            "com.heytap.speechassist",
+            "com.oplus.aimemory",
+            "com.coloros.shortcuts",
+            "com.coloros.calendar",
+            "com.coloros.filemanager",
+            "com.coloros.gallery3d",
+            "com.oplus.tips",
+    };
+
+    private static boolean isDeep(String pkg) {
+        for (String s : DEEP_CLEAR) {
+            if (s.equals(pkg)) return true;
+        }
+        return false;
+    }
+
+    private static boolean isEditor(String className) {
+        if (className == null) return false;
+        return className.toLowerCase().contains("editor");
+    }
+
+    private static void applyAlarmFix(android.view.View decor, String pkg, boolean dump) {
+        try {
+            clearBg(decor, isDeep(pkg) ? 40 : 10);
+            int cleared = clearScrims(decor, pkg);
+            hideNoise(decor, pkg);
+            dumpLoadingViews(decor, 0);
+            Drawable bgX = loadBg(decor.getContext());
+            if (bgX != null) decor.setBackground(bgX);
+            logv("alarm fix pass dump=" + dump + " cleared=" + cleared);
+            if (dump) {
+                sDumpLines = 0;
+                dumpTree(decor, 0);
+            }
+        } catch (Throwable t) {
+            log("alarm fix fail " + t);
+        }
     }
 
     private static int clearAllById(android.view.View v, int id, int depth, int clearDepth) {
@@ -549,6 +756,61 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
         return total;
     }
 
+    /** 顶部加载动画 / 骨架屏这类“一直在转”的视图，隐藏掉。 */
+    private static final String[] HIDE_IDS = {
+            "blur_overlay",
+            "ai_title_loading",
+            "eav",
+            "pull_refresh_loading_view",
+            "refresh_loading",
+            "flAnimContainer",
+            "loadingView",
+            "loading_view",
+            "skeleton_view",
+    };
+
+    /** 调试用：把 decor 里所有可见的“加载类”视图打出来（含 id、类名、bounds）。 */
+    private static void dumpLoadingViews(android.view.View v, int depth) {
+        if (v == null || depth > 40) return;
+        try {
+            String cls = v.getClass().getSimpleName();
+            boolean interesting = cls.contains("Loading") || cls.contains("Progress")
+                    || cls.contains("Rotate") || cls.contains("Anim")
+                    || cls.contains("Circle") || cls.contains("Spin");
+            if (interesting && v.getVisibility() == android.view.View.VISIBLE) {
+                int id = v.getId();
+                String name = "-";
+                try {
+                    name = id == android.view.View.NO_ID ? "-"
+                            : v.getResources().getResourceName(id);
+                } catch (Throwable ignored) {
+                }
+                android.graphics.Rect r = new android.graphics.Rect();
+                v.getGlobalVisibleRect(r);
+                log("LOADV " + cls + " id=" + name + " " + r.width() + "x" + r.height()
+                        + " @" + r.left + "," + r.top);
+            }
+            if (v instanceof android.view.ViewGroup) {
+                android.view.ViewGroup g = (android.view.ViewGroup) v;
+                for (int i = 0; i < g.getChildCount(); i++) {
+                    dumpLoadingViews(g.getChildAt(i), depth + 1);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+    private static void hideNoise(android.view.View decor, String pkg) {
+        try {
+            android.content.res.Resources r = decor.getContext().getResources();
+            for (String n : HIDE_IDS) {
+                int id = r.getIdentifier(n, "id", pkg);
+                if (id == 0) continue;
+                if (hideAllById(decor, id, 0)) logv("hid " + n);
+            }
+        } catch (Throwable t) {
+            log("hideNoise fail " + t);
+        }
+    }
     private static boolean dumpEnabled() {
         try {
             Object v = XposedHelpers.callStaticMethod(
@@ -557,60 +819,6 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
             return "1".equals(v);
         } catch (Throwable t) {
             return false;
-        }
-    }
-
-    private static final String[] DEEP_CLEAR = {
-            "com.coloros.calendar",
-            "com.coloros.filemanager",
-            "com.coloros.gallery3d",
-            "com.oplus.tips",
-    };
-
-    private static boolean isDeep(String pkg) {
-        for (String s : DEEP_CLEAR) {
-            if (s.equals(pkg)) return true;
-        }
-        return false;
-    }
-
-    private static boolean isEditor(String className) {
-        if (className == null) return false;
-        String c = className.toLowerCase();
-        return c.contains("editor");
-    }
-
-    private static void applyAlarmFix(android.view.View decor, String pkg, boolean dump) {
-        try {
-            clearBg(decor, isDeep(pkg) ? 40 : 10);
-            int cleared = clearScrims(decor, pkg);
-            int bid = decor.getContext().getResources().getIdentifier("blur_overlay", "id", pkg);
-            if (bid != 0) {
-                if (hideAllById(decor, bid, 0)) log("hid blur_overlay");
-                else logv("blur_overlay not found");
-            }
-            decor.setBackground(loadBg(decor.getContext()));
-            logv("alarm fix pass dump=" + dump + " cleared=" + cleared);
-            if (dump) {
-                sDumpLines = 0;
-                dumpTree(decor, 0);
-            }
-        } catch (Throwable t) {
-            log("alarm fix fail " + t);
-        }
-    }
-
-    private static void clearBg(android.view.View v, int depth) {
-        if (v == null || depth < 0) return;
-        try {
-            v.setBackground(null);
-        } catch (Throwable ignored) {
-        }
-        if (v instanceof android.view.ViewGroup) {
-            android.view.ViewGroup g = (android.view.ViewGroup) v;
-            for (int i = 0; i < g.getChildCount(); i++) {
-                clearBg(g.getChildAt(i), depth - 1);
-            }
         }
     }
 
@@ -667,6 +875,7 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
             return;
         }
         log("loaded pkg=" + lp.packageName);
+        log("bg-test entry hookbg=" + (containsBg(lp.packageName) ? "1" : "0"));
 
         for (String hb : HOOK_BG) {
             if (hb.equals(lp.packageName)) {
@@ -793,6 +1002,8 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
         } catch (Throwable t) {
             log("hook gis fail " + t);
         }
+
+        hookResMask(lp);
 
         if ("com.android.systemui".equals(lp.packageName)) {
             sLastUiMode = isNight() ? 0x20 : 0x10;
