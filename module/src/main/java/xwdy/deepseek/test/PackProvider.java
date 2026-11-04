@@ -9,13 +9,24 @@ import android.os.ParcelFileDescriptor;
 
 import java.io.File;
 
-/**
- * 只读提供 files/theme-packs/<包名> 给目标应用进程（contacts/mms）。
- * 包放在本应用数据目录，不写 /data/theme。
- */
+/** 只读提供 files/theme-packs/<名字> 给作用域内的应用进程。 */
 public class PackProvider extends ContentProvider {
 
     public static final String AUTHORITY = "xwdy.deepseek.test.packs";
+
+    private static final String[] ALLOW = {
+            "com.android.contacts", "com.android.mms", "com.android.settings",
+            "com.android.systemui", "com.coloros.filemanager", "com.coloros.alarmclock",
+            "com.coloros.calendar", "com.coloros.soundrecorder", "com.coloros.gallery3d",
+            "com.coloros.video", "com.coloros.digitalwellbeing", "com.coloros.familyguard",
+            "com.heytap.cloud", "com.heytap.health", "com.heytap.speechassist",
+            "com.oplus.aimemory", "com.oplus.tips", "com.coloros.shortcuts",
+            "com.heytap.themestore", "com.android.stk",
+    };
+
+    private static void log(String s) {
+        android.util.Log.i("CosNightTheme", "PackProvider: " + s);
+    }
 
     private File dir() {
         return new File(getContext().getFilesDir(), "theme-packs");
@@ -28,12 +39,20 @@ public class PackProvider extends ContentProvider {
 
     @Override
     public ParcelFileDescriptor openFile(Uri uri, String mode) throws java.io.FileNotFoundException {
-        checkCaller();
-        File f = resolve(uri);
-        return ParcelFileDescriptor.open(f, ParcelFileDescriptor.MODE_READ_ONLY);
+        try {
+            checkCaller();
+            File f = resolve(uri);
+            log("open " + f.getName() + " " + f.length());
+            return ParcelFileDescriptor.open(f, ParcelFileDescriptor.MODE_READ_ONLY);
+        } catch (java.io.FileNotFoundException e) {
+            log("open fail " + uri + " " + e.getMessage());
+            throw e;
+        } catch (Throwable t) {
+            log("open error " + uri + " " + t);
+            throw new java.io.FileNotFoundException(String.valueOf(t));
+        }
     }
 
-    /** 只允许主题相关的目标应用和本应用读取。 */
     private void checkCaller() throws java.io.FileNotFoundException {
         int uid = android.os.Binder.getCallingUid();
         if (uid == android.os.Process.myUid()) return;
@@ -41,14 +60,14 @@ public class PackProvider extends ContentProvider {
             String[] pkgs = getContext().getPackageManager().getPackagesForUid(uid);
             if (pkgs != null) {
                 for (String p : pkgs) {
-                    if ("com.android.contacts".equals(p) || "com.android.mms".equals(p)
-                            || "com.android.settings".equals(p)
-                            || "com.android.systemui".equals(p)) {
-                        return;
+                    for (String a : ALLOW) {
+                        if (a.equals(p)) return;
                     }
                 }
             }
-        } catch (Throwable ignored) {
+            log("deny uid=" + uid + " pkg=" + (pkgs == null ? "null" : pkgs[0]));
+        } catch (Throwable t) {
+            log("deny check error uid=" + uid + " " + t);
         }
         throw new java.io.FileNotFoundException("caller denied");
     }
@@ -58,8 +77,12 @@ public class PackProvider extends ContentProvider {
         if (name == null || name.contains("/") || name.contains("..")) {
             throw new java.io.FileNotFoundException(String.valueOf(uri));
         }
-        File f = new File(dir(), name);
-        if (!f.isFile()) throw new java.io.FileNotFoundException(f.getAbsolutePath());
+        File d = dir();
+        File f = new File(d, name);
+        if (!f.isFile()) {
+            log("missing " + f.getAbsolutePath() + " dirExists=" + d.isDirectory());
+            throw new java.io.FileNotFoundException(f.getAbsolutePath());
+        }
         return f;
     }
 
@@ -70,7 +93,8 @@ public class PackProvider extends ContentProvider {
         try {
             checkCaller();
             c.addRow(new Object[]{resolve(uri).length()});
-        } catch (Throwable ignored) {
+        } catch (Throwable t) {
+            log("query fail " + uri + " " + t);
         }
         return c;
     }
