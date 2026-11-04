@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="xwdy.deepseek.test"
-    android:versionCode="152"
-    android:versionName="0.4">
+    android:versionCode="155"
+    android:versionName="0.4-beta35">
 
     <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35" />
 
