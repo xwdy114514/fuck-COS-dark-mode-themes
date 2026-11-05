@@ -106,11 +106,7 @@ public class MainActivity extends Activity {
     private TextView tvChannel;
     private TextView tvEnv;
     private LinearLayout darkBox;
-    private boolean darkUnlocked;
-    private int verTapCount;
-    private long lastVerTap;
     private LinearLayout envCard;
-    private TextView tvDarkBlocked;
     private TextView tvLog;
     private TextView btnDark;
     private TextView btnRestart;
@@ -201,7 +197,6 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         OsVersion.check();
         prefs = getSharedPreferences(PREFS, 0);
-        darkUnlocked = prefs.getBoolean("dark_unlocked", false);
         if (!osAllowed()) {
             showBlockedScreen();
             return;
@@ -372,7 +367,6 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         head.addView(title);
         TextView ver = new TextView(this);
-        bindVersionTap(ver);
         ver.setText(ver());
         ver.setTextSize(11);
         ver.setTextColor(COLOR_SUB);
@@ -558,16 +552,9 @@ public class MainActivity extends Activity {
         // 附加功能
         darkBox = new LinearLayout(this);
         darkBox.setOrientation(LinearLayout.VERTICAL);
-        darkBox.setVisibility(darkUnlocked ? View.VISIBLE : View.GONE);
+        darkBox.setVisibility(View.GONE);   // 先隐藏；render() 按 Root + LSPosed 是否就绪决定显示
         root.addView(darkBox);
         section(darkBox, "附加 · 深色适配");
-        tvDarkBlocked = new TextView(this);
-        tvDarkBlocked.setTextSize(12.5f);
-        tvDarkBlocked.setTextColor(COLOR_WARN);
-        tvDarkBlocked.setPadding(dp(2), dp(6), dp(2), 0);
-        tvDarkBlocked.setText(darkBlockMessage());
-        tvDarkBlocked.setVisibility(View.GONE);
-        darkBox.addView(tvDarkBlocked);
         envCard = card();
         envCard.setBackground(rounded(COLOR_CARD_ALT, COLOR_LINE, 16));
         tvEnv = new TextView(this);
@@ -932,33 +919,23 @@ public class MainActivity extends Activity {
         paint(tvShizuku, sh, sh.startsWith("已授权") ? COLOR_ACCENT : COLOR_WARN);
         paint(tvChannel, channelText, COLOR_SUB);
         boolean hasRoot = rootChecked && rootReady;
-        boolean darkBlocked = hookChecked && (!hookReady || !(rootReady || ShizukuBridge.granted()));
+        // 深色入口只在 Root + LSPosed 都就绪时出现（产品规则：不满足时用户看不到）
+        boolean darkAvailable = rootChecked && rootReady && hookChecked && hookReady;
+        if (darkBox != null) darkBox.setVisibility(darkAvailable ? View.VISIBLE : View.GONE);
         if (btnInstall != null) btnInstall.setVisibility(View.VISIBLE);
         if (tvRiskNote != null) tvRiskNote.setVisibility(View.VISIBLE);
-        if (tvDarkBlocked != null) {
-            tvDarkBlocked.setText(darkBlockMessage());
-            tvDarkBlocked.setVisibility(darkBlocked ? View.VISIBLE : View.GONE);
-        }
-        if (envCard != null) envCard.setVisibility(darkBlocked ? View.GONE : View.VISIBLE);
-        if (btnDark != null) btnDark.setVisibility(darkBlocked ? View.GONE : View.VISIBLE);
-        if (btnFix != null) btnFix.setVisibility(darkBlocked ? View.GONE : (hookReady ? View.VISIBLE : View.GONE));
+        if (envCard != null) envCard.setVisibility(View.VISIBLE);
+        if (btnDark != null) btnDark.setVisibility(View.VISIBLE);
+        if (btnFix != null) btnFix.setVisibility(hookReady ? View.VISIBLE : View.GONE);
         boolean os17 = OsVersion.supported();
         if (btnDark != null) { btnDark.setEnabled(os17); btnDark.setAlpha(os17 ? 1f : 0.4f); }
         if (btnOneKey != null) { btnOneKey.setEnabled(os17); btnOneKey.setAlpha(os17 ? 1f : 0.4f); }
-        if (btnOneKey != null) btnOneKey.setVisibility(darkBlocked ? View.GONE : (hasRoot ? View.VISIBLE : View.GONE));
+        if (btnOneKey != null) btnOneKey.setVisibility(darkAvailable && hasRoot ? View.VISIBLE : View.GONE);
         if (btnStoreImport != null) btnStoreImport.setVisibility(hasRoot ? View.GONE : View.VISIBLE);
         if (tvNoRootHint != null) tvNoRootHint.setVisibility(hasRoot ? View.GONE : View.VISIBLE);
         renderEnv();
     }
 
-    /** 深色入口被拦的原因分三种，别一律写“没有 root”，会把“LSPosed 明明开着”指认错。 */
-    private String darkBlockMessage() {
-        boolean shizuku = ShizukuBridge.granted();
-        if (!rootChecked && !shizuku) return "检测中…";
-        if (!rootReady && !shizuku) return "深色适配需要 Root + LSPosed：当前没有可用的 Root / Shizuku 通道";
-        if (hookUnknown) return "无法确认 LSPosed：shell 身份看不到 /data/adb，等 Root 就绪后点「刷新状态」重测";
-        return "LSPosed 未运行：请在 LSPosed 管理器中启用本模块并勾选作用域，再重启设备";
-    }
 
     private void paint(TextView v, String text, int color) {
         v.setText(text);
@@ -3386,124 +3363,6 @@ public class MainActivity extends Activity {
 
 
 
-    // ---------------------------------------------------------------- 深色适配密码
-    // 只存盐和 SHA-256 摘要，源码里没有明文；改密码就换这两个常量。
-    private static final String DARK_SALT = "mctga-v1-6f3a9c";
-    private static final String DARK_HASH =
-            "6d5457b1a9b53348e58e7ffa95a266a666c4a982e5175aeddb8c9717795dc996";
-
-    private String sha256(String s) {
-        try {
-            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
-            byte[] d = md.digest(s.getBytes("UTF-8"));
-            StringBuilder sb = new StringBuilder();
-            for (byte b : d) sb.append(String.format(java.util.Locale.US, "%02x", b));
-            return sb.toString();
-        } catch (Throwable t) {
-            return "";
-        }
-    }
-
-    private boolean darkPasswordOk(String input) {
-        if (input == null || input.isEmpty()) return false;
-        return DARK_HASH.equals(sha256(DARK_SALT + input));
-    }
-
-    /** 弹密码框；通过才执行 next。 */
-    private void askDarkPassword(final String title, final Runnable next) {
-        if (!canShowDialog()) {
-            toast("请先回到应用界面再操作");
-            return;
-        }
-        final android.widget.EditText et = new android.widget.EditText(this);
-        et.setHint("输入密码");
-        et.setInputType(android.text.InputType.TYPE_CLASS_TEXT
-                | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        et.setSingleLine(true);
-        int pad = dp(20);
-        et.setPadding(pad, dp(8), pad, dp(8));
-        AlertDialog dlg = new AlertDialog.Builder(this)
-                .setTitle(title)
-                .setView(et)
-                .setPositiveButton("确定", new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface d, int w) {
-                        if (darkPasswordOk(et.getText().toString().trim())) {
-                            next.run();
-                        } else {
-                            setLog("最近操作：密码错误，" + title + " 未执行");
-                            toast("密码错误，不能启用");
-                        }
-                    }
-                })
-                .setNegativeButton("取消", null)
-                .create();
-        dlg.setCanceledOnTouchOutside(false);
-        dlg.setCancelable(false);
-        dlg.show();
-    }
-
-    /** 深色适配入口：连点版本号 7 次 → 密码 → 解锁并开启。 */
-    private void bindVersionTap(View ver) {
-        ver.setClickable(true);
-        ver.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                if (!darkGate()) return;
-                long now = System.currentTimeMillis();
-                if (now - lastVerTap > 1500L) verTapCount = 0;
-                lastVerTap = now;
-                verTapCount++;
-                if (verTapCount < 7) {
-                    if (verTapCount >= 4) toast("还差 " + (7 - verTapCount) + " 次");
-                    return;
-                }
-                verTapCount = 0;
-                askDarkPassword("启用深色适配", new Runnable() {
-                    @Override
-                    public void run() {
-                        unlockDark();
-                    }
-                });
-            }
-        });
-    }
-
-    private void unlockDark() {
-        if (!darkGate()) {
-            setLog("最近操作：缺少 Root 或 LSPosed，深色适配不可用");
-            return;
-        }
-        darkUnlocked = true;
-        prefs.edit().putBoolean("dark_unlocked", true).apply();
-        if (darkBox != null) darkBox.setVisibility(View.VISIBLE);
-        renderEnv();
-        final boolean viaShizuku = useShizukuChannel();
-        exec.execute(new Runnable() {
-            @Override
-            public void run() {
-                final ShellRunner.Result r = sh("settings put global mctga_dark_attach 1",
-                        12000, viaShizuku);
-                post(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (r.ok()) {
-                            toast("深色适配已解锁并开启，重启目标应用后生效");
-                            setLog("最近操作：深色适配已解锁");
-                        } else {
-                            toast("已解锁，但开启失败：" + r.err.trim());
-                        }
-                        renderEnv();
-                    }
-                });
-            }
-        });
-    }
-
-    /** 深色功能门槛：必须同时具备 Root 与 LSPosed，否则该功能对用户不可见。 */
-    private boolean darkGate() {
-        return env != null && env.rootOk && env.lspdRunning;
-    }
 
     /** 文案外置：布局发生变化就应用一次 texts.json 的覆盖（幂等，换过的节点打 tag）。 */
 
