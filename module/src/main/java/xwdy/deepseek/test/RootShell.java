@@ -2,11 +2,11 @@ package xwdy.deepseek.test;
 
 /**
  * Root 通道：写 /data/theme、重启适配应用、读取主题目录状态。
- * 注意：锁定 / 解锁商店只需要 shell 身份（Sui / Shizuku），root 只是为了让这些操作也能在没有 Shizuku 时工作。
+ * 注意：锁定 / 解锁商店只需要 shell 身份（Shizuku），root 只是为了让这些操作也能在没有 Shizuku 时工作。
  */
 public final class RootShell {
 
-    /** Sui 会把 su 从被注入进程的挂载命名空间里隐藏，所以要按绝对路径逐个试。 */
+    /** Shizuku 会把 su 从被注入进程的挂载命名空间里隐藏，所以要按绝对路径逐个试。 */
     private static final String[] SU_PATHS = {
             "/system/bin/su", "/debug_ramdisk/su", "/sbin/su", "su"
     };
