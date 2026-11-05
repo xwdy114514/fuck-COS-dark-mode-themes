@@ -1,0 +1,17 @@
+# MCTGA 构建记录（build.sh 自动生成，勿手改）
+versionName: 0.5.1
+versionCode: 221
+构建时间: 2026-11-05 18:00:22 +0800
+构建环境: PJD110 / Android 17 / aarch64
+工具链: /data/local/tmp/tc/prefix
+javac: javac 21.0.13
+java 基线: 21.0.13（一致）
+d8.jar md5: 1b9c3a965f91d74b773b71de1d48a743
+d8 依赖缓存: 命中 deps-a53a02d09febe48724663f6f48e8b8f8.jar
+阶段耗时: aapt2 1300ms / javac 2288ms / d8 2714ms / 打包签名 1420ms
+android.jar md5: 3d3a962caad5b8ee4560183126b10afa
+产物: MCTGA-0.5.1.apk 919466 字节
+产物 sha256: 56d88c5d93f69fe407ae400e63eedf5e0f7768c9660aed7ae12664d3de25debe
+
+说明: classes.dex 的字节大小随 javac / d8 / android.jar 版本变化，同一份源码在不同工具链上
+重建后大小可能不同，不能用 dex 大小判断是否同源；请比对 SHA256SUMS 里 .java 的哈希。
