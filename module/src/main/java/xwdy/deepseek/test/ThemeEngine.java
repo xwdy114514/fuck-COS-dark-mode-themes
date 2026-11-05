@@ -22,7 +22,7 @@ public final class ThemeEngine {
                 + "empty() { [ -f \"$T\" ] && [ ! -s \"$T\" ] && [ ! -L \"$T\" ]; }\n";
     }
 
-    /** allowRoot=true 时接受 uid 0（Sui / su），否则只接受 shell 的 uid 2000。 */
+    /** allowRoot=true 时接受 uid 0（Shizuku / su），否则只接受 shell 的 uid 2000。 */
     private static String guard(boolean allowRoot) {
         String identity = allowRoot
                 ? "U=$(id -u)\n"
