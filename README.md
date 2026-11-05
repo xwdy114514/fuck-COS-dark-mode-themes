@@ -3,7 +3,7 @@
 让 ColorOS 17 在深色模式下也能加载 `.theme` 主题，并补齐主题引擎不会解压的联系人 / 短信主题包。
 
 - 包名：`xwdy.deepseek.test`
-- 版本：`0.4`（versionCode 152）
+- 版本：`0.5.1`（versionCode 221）
 - 系统：ColorOS 11+ / realme UI（深色适配仍只在 ColorOS 17 上启用）
 
 ## 功能
@@ -26,7 +26,7 @@
 ## 安装
 
 1. 安装 `out/MCTGA-0.4.apk`
-2. LSPosed 中启用模块，作用域按 `module/res/values/arrays.xml` 勾满 **20 个包**
+2. LSPosed 中启用模块，作用域按 `module/res/values/arrays.xml` 勾满 **22 个包**
 3. 给 MCTGA 授予 Root（KernelSU / Magisk）或 Shizuku 授权
 
 > 没有 Root / Shizuku 时，「附加 · 深色适配」整块会隐藏并提示「没有 lsposed 和 root，无法使用」。
