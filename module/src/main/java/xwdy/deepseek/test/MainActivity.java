@@ -49,7 +49,7 @@ import rikka.shizuku.Shizuku;
  * MCTGA 控制台。
  *
  * 分区：主题常驻（主功能）→ 深色适配（附加）→ 高级。
- * 身份：写 /data/theme 与重启应用要 Root；pm suspend/unsuspend 用 Sui/Shizuku 的 shell 即可；
+ * 身份：写 /data/theme 与重启应用要 Root；pm suspend/unsuspend 用 Shizuku 的 shell 即可；
  *       空文件替换（锁定/解锁）要能读写商店的 Android/data。
  */
 public class MainActivity extends Activity {
@@ -98,16 +98,22 @@ public class MainActivity extends Activity {
 
     private TextView tvStore;
     private TextView tvSystem;
+    private TextView cloudNotice;
     private TextView tvStoreState;
     private TextView tvThemes;
     private TextView tvRoot;
     private TextView tvShizuku;
     private TextView tvChannel;
     private TextView tvEnv;
+    private LinearLayout darkBox;
+    private boolean darkUnlocked;
+    private int verTapCount;
+    private long lastVerTap;
     private LinearLayout envCard;
     private TextView tvDarkBlocked;
     private TextView tvLog;
     private TextView btnDark;
+    private TextView btnRestart;
     private TextView btnInstall;
     private TextView tvRiskNote;
     private TextView btnFix;
@@ -138,7 +144,6 @@ public class MainActivity extends Activity {
     private String themesState = "检测中…";
     private boolean storeSuspended;
     private boolean storeSuspendedKnown;
-    private boolean unlockPrompted;
     private boolean rootReady;
     private boolean rootChecked;
     private String channelText = "—";
@@ -196,6 +201,7 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         OsVersion.check();
         prefs = getSharedPreferences(PREFS, 0);
+        darkUnlocked = prefs.getBoolean("dark_unlocked", false);
         if (!osAllowed()) {
             showBlockedScreen();
             return;
@@ -319,6 +325,8 @@ public class MainActivity extends Activity {
 
         sv.addView(box);
         setContentView(sv);
+        bindTextOverride();
+        loadCloud();
         sv.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
             @Override
             public WindowInsets onApplyWindowInsets(View v, WindowInsets insets) {
@@ -340,6 +348,8 @@ public class MainActivity extends Activity {
         root.setPadding(dp(18), dp(24), dp(18), dp(28));
         scroll.addView(root);
         setContentView(scroll);
+        bindTextOverride();
+        loadCloud();
         scroll.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
             @Override
             public WindowInsets onApplyWindowInsets(View v, WindowInsets insets) {
@@ -362,6 +372,7 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         head.addView(title);
         TextView ver = new TextView(this);
+        bindVersionTap(ver);
         ver.setText(ver());
         ver.setTextSize(11);
         ver.setTextColor(COLOR_SUB);
@@ -376,11 +387,12 @@ public class MainActivity extends Activity {
         sub.setTextColor(COLOR_FAINT);
         sub.setPadding(0, dp(6), 0, 0);
         root.addView(sub);
+        addCloudNotice(root);
         tvSystem = new TextView(this);
         tvSystem.setTextSize(11.5f);
         tvSystem.setLineSpacing(dp(3), 1f);
         tvSystem.setPadding(0, dp(8), 0, 0);
-        root.addView(tvSystem);
+        addDeviceLine(root);
 
         // 主状态卡
         LinearLayout status = card();
@@ -544,14 +556,18 @@ public class MainActivity extends Activity {
         root.addView(lockHint);
 
         // 附加功能
-        section(root, "附加 · 深色适配");
+        darkBox = new LinearLayout(this);
+        darkBox.setOrientation(LinearLayout.VERTICAL);
+        darkBox.setVisibility(darkUnlocked ? View.VISIBLE : View.GONE);
+        root.addView(darkBox);
+        section(darkBox, "附加 · 深色适配");
         tvDarkBlocked = new TextView(this);
         tvDarkBlocked.setTextSize(12.5f);
         tvDarkBlocked.setTextColor(COLOR_WARN);
         tvDarkBlocked.setPadding(dp(2), dp(6), dp(2), 0);
-        tvDarkBlocked.setText("没有 lsposed 和 root，无法使用");
+        tvDarkBlocked.setText(darkBlockMessage());
         tvDarkBlocked.setVisibility(View.GONE);
-        root.addView(tvDarkBlocked);
+        darkBox.addView(tvDarkBlocked);
         envCard = card();
         envCard.setBackground(rounded(COLOR_CARD_ALT, COLOR_LINE, 16));
         tvEnv = new TextView(this);
@@ -560,7 +576,7 @@ public class MainActivity extends Activity {
         tvEnv.setLineSpacing(dp(4), 1f);
         tvEnv.setText("检测中…");
         envCard.addView(tvEnv);
-        root.addView(envCard);
+        darkBox.addView(envCard);
 
         btnDark = button(darkSwitchText(), BTN_SECONDARY, new Runnable() {
             @Override
@@ -568,14 +584,21 @@ public class MainActivity extends Activity {
                 toggleDark();
             }
         });
-        addBtn(root, btnDark);
+        addBtn(darkBox, btnDark);
+        btnRestart = button(systemUiRestartText(), BTN_GHOST, new Runnable() {
+            @Override
+            public void run() {
+                toggleSystemUiRestart();
+            }
+        });
+        addBtn(darkBox, btnRestart);
         btnFix = button("补齐联系人/短信主题包", BTN_GHOST, new Runnable() {
             @Override
             public void run() {
                 installTheme();
             }
         });
-        addBtn(root, btnFix);
+        addBtn(darkBox, btnFix);
 
         btnOneKey = button("一键生效（重启适配应用 + SystemUI）", BTN_GHOST, new Runnable() {
             @Override
@@ -583,7 +606,7 @@ public class MainActivity extends Activity {
                 oneKey();
             }
         });
-        addBtn(root, btnOneKey);
+        addBtn(darkBox, btnOneKey);
 
         // 高级
         section(root, "高级");
@@ -653,7 +676,7 @@ public class MainActivity extends Activity {
         helpNote.setTextSize(11);
         helpNote.setTextColor(COLOR_FAINT);
         helpNote.setPadding(0, dp(10), 0, 0);
-        helpNote.setText("Sui / Shizuku 负责 pm 操作；读写商店目录需要能用 Android/data 的身份。"
+        helpNote.setText("Shizuku 负责 pm 操作；读写商店目录需要能用 Android/data 的身份。"
                 + "不要卸载主题商店。");
         help.addView(helpNote);
         root.addView(help);
@@ -912,7 +935,10 @@ public class MainActivity extends Activity {
         boolean darkBlocked = hookChecked && (!hookReady || !(rootReady || ShizukuBridge.granted()));
         if (btnInstall != null) btnInstall.setVisibility(View.VISIBLE);
         if (tvRiskNote != null) tvRiskNote.setVisibility(View.VISIBLE);
-        if (tvDarkBlocked != null) tvDarkBlocked.setVisibility(darkBlocked ? View.VISIBLE : View.GONE);
+        if (tvDarkBlocked != null) {
+            tvDarkBlocked.setText(darkBlockMessage());
+            tvDarkBlocked.setVisibility(darkBlocked ? View.VISIBLE : View.GONE);
+        }
         if (envCard != null) envCard.setVisibility(darkBlocked ? View.GONE : View.VISIBLE);
         if (btnDark != null) btnDark.setVisibility(darkBlocked ? View.GONE : View.VISIBLE);
         if (btnFix != null) btnFix.setVisibility(darkBlocked ? View.GONE : (hookReady ? View.VISIBLE : View.GONE));
@@ -923,6 +949,15 @@ public class MainActivity extends Activity {
         if (btnStoreImport != null) btnStoreImport.setVisibility(hasRoot ? View.GONE : View.VISIBLE);
         if (tvNoRootHint != null) tvNoRootHint.setVisibility(hasRoot ? View.GONE : View.VISIBLE);
         renderEnv();
+    }
+
+    /** 深色入口被拦的原因分三种，别一律写“没有 root”，会把“LSPosed 明明开着”指认错。 */
+    private String darkBlockMessage() {
+        boolean shizuku = ShizukuBridge.granted();
+        if (!rootChecked && !shizuku) return "检测中…";
+        if (!rootReady && !shizuku) return "深色适配需要 Root + LSPosed：当前没有可用的 Root / Shizuku 通道";
+        if (hookUnknown) return "无法确认 LSPosed：shell 身份看不到 /data/adb，等 Root 就绪后点「刷新状态」重测";
+        return "LSPosed 未运行：请在 LSPosed 管理器中启用本模块并勾选作用域，再重启设备";
     }
 
     private void paint(TextView v, String text, int color) {
@@ -994,14 +1029,18 @@ public class MainActivity extends Activity {
                 boolean ok = false;
                 boolean unknown = false;
                 try {
-                    boolean viaShizuku = ShizukuBridge.granted();
+                    // 有 Root 就先走 Root：shell 身份（uid 2000 / u:r:ksu:s0）看不到 /data/adb，
+                    // 用它探测会把「LSPosed 正在运行」误判成「没装 / 没开」。
+                    boolean viaShizuku = useShizukuChannel();
                     ShellRunner.Result r = sh(
-                            "pidof lspd 2>/dev/null || true; [ -d /data/adb/lspd ] && echo LSPD_DIR",
+                            "ls -d /data/adb/lspd 2>/dev/null; "
+                                    + "ls -d /data/adb/modules/zygisk_lsposed 2>/dev/null; "
+                                    + "pidof lspd 2>/dev/null; true",
                             10000, viaShizuku);
                     String out = r.out == null ? "" : r.out.trim();
-                    unknown = out.isEmpty();
-                    ok = !unknown && (out.contains("LSPD_DIR")
-                            || out.replaceAll("\\D", "").length() > 0);
+                    ok = out.length() > 0;
+                    // Root 通道下为空就是真的没运行；只有走 shell 身份或命令本身失败才叫“无法确认”
+                    unknown = !ok && (viaShizuku || !r.ok());
                 } catch (Throwable t) {
                     unknown = true;
                 }
@@ -1035,10 +1074,16 @@ public class MainActivity extends Activity {
                     public void run() {
                         rootChecked = true;
                         rootReady = ok;
+                        // 首次探测可能跑在 Root 就绪之前（那时只能用 shell 身份，看不到 /data/adb），Root 一到就重测
+                        if (ok && hookChecked && !hookReady && hookUnknown) {
+                            hookChecked = false;
+                            hookUnknown = false;
+                        }
                         render();
                         refreshGuide();
                         refreshStore();
                         refreshEnv(false);
+                        if (!hookChecked) refreshHook();
                     }
                 });
             }
@@ -1047,8 +1092,8 @@ public class MainActivity extends Activity {
 
     /**
      * 通道选择：有 Root 就优先 Root —— 读 Android/data、写 /data/theme 只有 Root 能保证；
-     * Sui 的 shell（uid 2000, u:r:ksu:s0）会被外部存储的 FUSE 拒掉，只能做 pm 类操作。
-     * 返回 true 表示走 Shizuku/Sui。
+     * Shizuku 的 shell（uid 2000, u:r:ksu:s0）会被外部存储的 FUSE 拒掉，只能做 pm 类操作。
+     * 返回 true 表示走 Shizuku。
      */
     private boolean useShizukuChannel() {
         return !(rootChecked && rootReady) && ShizukuBridge.granted();
@@ -1848,8 +1893,8 @@ public class MainActivity extends Activity {
                         themesState = describe(state, suspended, timeout);
                         channelText = !r.out.contains("UID:") ? "不可用"
                                 : ("0".equals(uid)
-                                        ? (viaShizuku ? "Sui / Shizuku（root）" : "su（root）")
-                                        : "Shizuku / Sui（shell 2000）")
+                                        ? (viaShizuku ? "Shizuku（root）" : "su（root）")
+                                        : "Shizuku（shell 2000）")
                                         + ("INACCESSIBLE".equals(state) ? " · 无目录权限" : "");
                         render();
                         refreshGuide();
@@ -1911,8 +1956,6 @@ public class MainActivity extends Activity {
         return viaShizuku ? ShizukuBridge.shell(script, timeout) : RootShell.shell(script, timeout);
     }
 
-    /** 商店被挂起且 Themes 是空占位文件时，主动问一次要不要处理。 */
-
     /** 商店被挂起 / Themes 是空占位文件，任一成立就主动问一次要不要处理。 */
     private void handleLockedState() {
         final String pkg = (storePkg == null || storePkg.isEmpty())
@@ -1951,13 +1994,13 @@ public class MainActivity extends Activity {
 
     private void requireChannel() {
         if (!canShowDialog()) {
-            toast("需要 Sui / Shizuku 或 Root");
+            toast("需要 Shizuku 或 Root");
             return;
         }
         new AlertDialog.Builder(this)
                 .setTitle("需要特权通道")
-                .setMessage("Sui / Shizuku 未授权，Root 也不可用。\n\n"
-                        + "· pm 操作（解冻/冻结）：Sui 或 Shizuku 授权即可\n"
+                .setMessage("Shizuku 未授权，Root 也不可用。\n\n"
+                        + "· pm 操作（解冻/冻结）：Shizuku 或 Shizuku 授权即可\n"
                         + "· 读写商店目录、写 /data/theme：需要 Shizuku（无线调试）或 Root")
                 .setPositiveButton("去授权", new DialogInterface.OnClickListener() {
                     @Override
@@ -2161,7 +2204,7 @@ public class MainActivity extends Activity {
         }
         new AlertDialog.Builder(this)
                 .setTitle("当前身份读不到 Android/data")
-                .setMessage("Sui 提供的 shell 只能执行 pm 等 Binder 操作，读不到 "
+                .setMessage("Shizuku 提供的 shell 只能执行 pm 等 Binder 操作，读不到 "
                         + "/storage/emulated/0/Android/data，所以空文件替换式锁定/解锁用不了。\n\n"
                         + "· 解冻 / 冻结：现在就能用\n"
                         + "· 锁定 / 解锁：需要无线调试或 ADB 启动的 Shizuku，或 Root\n\n"
@@ -2944,7 +2987,11 @@ public class MainActivity extends Activity {
             showDarkChannelHint("切换开关要写 Settings.Global");
             return;
         }
-        final boolean next = !darkOn();
+        // 密码只在“连点版本号解锁”那一步要，进来之后开关直接切
+        applyDarkToggle(!darkOn());
+    }
+
+    private void applyDarkToggle(final boolean next) {
         final boolean viaShizuku = useShizukuChannel();
         toast(next ? "正在开启深色适配…" : "正在关闭深色适配…");
         exec.execute(new Runnable() {
@@ -2967,8 +3014,6 @@ public class MainActivity extends Activity {
             }
         });
     }
-
-    // ================================================================ Shizuku
 
     private void shizukuSetup() {
         if (ShizukuBridge.granted()) {
@@ -3033,7 +3078,7 @@ public class MainActivity extends Activity {
         if (!canShowDialog()) return;
         new AlertDialog.Builder(this)
                 .setTitle("需要 Shizuku 授权")
-                .setMessage("Sui 提供的是 shell 身份，pm 操作够用；"
+                .setMessage("Shizuku 提供的是 shell 身份，pm 操作够用；"
                         + "要读写 Android/data 需要无线调试/ADB 启动的 Shizuku。\n\n"
                         + "1 启动 Shizuku（Android 11+ 用无线调试）\n"
                         + "2 在 Shizuku 里允许 MCTGA\n"
@@ -3109,6 +3154,9 @@ public class MainActivity extends Activity {
                 sb.append("设备：").append(android.os.Build.MANUFACTURER).append(' ')
                         .append(android.os.Build.MODEL).append(" / Android ")
                         .append(android.os.Build.VERSION.RELEASE).append('\n');
+                sb.append("品牌：").append(android.os.Build.BRAND).append("\n");
+                sb.append("设备代号：").append(android.os.Build.DEVICE).append("\n");
+                sb.append("版本名称：").append(OsVersion.prop("ro.build.display.id")).append("\n");
                 sb.append("系统：").append(osVersion()).append('\n');
                 sb.append("支持：").append(OsVersion.supported() ? "ColorOS 17" : "不支持").append('\n');
                 sb.append("Root：").append(rootReady ? "可用" : "不可用").append('\n');
@@ -3117,7 +3165,7 @@ public class MainActivity extends Activity {
                         ? (hookUnknown ? "无法确认（没有 Root / Shizuku）"
                         : (hookReady ? "运行中" : "未运行")) : "检测中").append('\n');
                 sb.append("通道：").append(channelText)
-                        .append('（').append(viaShizuku ? "Sui / Shizuku" : "Root").append("）\n");
+                        .append('（').append(viaShizuku ? "Shizuku" : "Root").append("）\n");
                 sb.append("深色开关：").append(darkOn() ? "已开启" : "已关闭").append('\n');
                 sb.append("商店：").append(storePkg.isEmpty() ? "未确定" : storePkg).append('\n');
                 sb.append("商店状态：").append(storeSuspendedKnown
@@ -3246,8 +3294,8 @@ public class MainActivity extends Activity {
                 + "· 深色模式主题适配（LSPosed，20 个作用域包）\n"
                 + "· 主题常驻防护（锁定商店，挡住试用到期恢复）\n\n"
                 + "仅支持 ColorOS 11 及以上；非 ColorOS 设备全部功能停用。\n\n"
-                + "身份：Sui/Shizuku 做 pm 操作；读写 Android/data 需要 Shizuku（无线调试）"
-                + "或 Root；Sui 会接管 su，所以 Root 功能可能不可用。");
+                + "身份：Shizuku 做 pm 操作；读写 Android/data 需要 Shizuku（无线调试）"
+                + "或 Root；部分环境下 su 会被隐藏，Root 功能可能不可用。");
         box.addView(t);
 
         // 相关链接
@@ -3337,4 +3385,295 @@ public class MainActivity extends Activity {
     // ---------------------------------------------------------------- 回滚
 
 
+
+    // ---------------------------------------------------------------- 深色适配密码
+    // 只存盐和 SHA-256 摘要，源码里没有明文；改密码就换这两个常量。
+    private static final String DARK_SALT = "mctga-v1-6f3a9c";
+    private static final String DARK_HASH =
+            "6d5457b1a9b53348e58e7ffa95a266a666c4a982e5175aeddb8c9717795dc996";
+
+    private String sha256(String s) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] d = md.digest(s.getBytes("UTF-8"));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : d) sb.append(String.format(java.util.Locale.US, "%02x", b));
+            return sb.toString();
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    private boolean darkPasswordOk(String input) {
+        if (input == null || input.isEmpty()) return false;
+        return DARK_HASH.equals(sha256(DARK_SALT + input));
+    }
+
+    /** 弹密码框；通过才执行 next。 */
+    private void askDarkPassword(final String title, final Runnable next) {
+        if (!canShowDialog()) {
+            toast("请先回到应用界面再操作");
+            return;
+        }
+        final android.widget.EditText et = new android.widget.EditText(this);
+        et.setHint("输入密码");
+        et.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        et.setSingleLine(true);
+        int pad = dp(20);
+        et.setPadding(pad, dp(8), pad, dp(8));
+        AlertDialog dlg = new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setView(et)
+                .setPositiveButton("确定", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int w) {
+                        if (darkPasswordOk(et.getText().toString().trim())) {
+                            next.run();
+                        } else {
+                            setLog("最近操作：密码错误，" + title + " 未执行");
+                            toast("密码错误，不能启用");
+                        }
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .create();
+        dlg.setCanceledOnTouchOutside(false);
+        dlg.setCancelable(false);
+        dlg.show();
+    }
+
+    /** 深色适配入口：连点版本号 7 次 → 密码 → 解锁并开启。 */
+    private void bindVersionTap(View ver) {
+        ver.setClickable(true);
+        ver.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (!darkGate()) return;
+                long now = System.currentTimeMillis();
+                if (now - lastVerTap > 1500L) verTapCount = 0;
+                lastVerTap = now;
+                verTapCount++;
+                if (verTapCount < 7) {
+                    if (verTapCount >= 4) toast("还差 " + (7 - verTapCount) + " 次");
+                    return;
+                }
+                verTapCount = 0;
+                askDarkPassword("启用深色适配", new Runnable() {
+                    @Override
+                    public void run() {
+                        unlockDark();
+                    }
+                });
+            }
+        });
+    }
+
+    private void unlockDark() {
+        if (!darkGate()) {
+            setLog("最近操作：缺少 Root 或 LSPosed，深色适配不可用");
+            return;
+        }
+        darkUnlocked = true;
+        prefs.edit().putBoolean("dark_unlocked", true).apply();
+        if (darkBox != null) darkBox.setVisibility(View.VISIBLE);
+        renderEnv();
+        final boolean viaShizuku = useShizukuChannel();
+        exec.execute(new Runnable() {
+            @Override
+            public void run() {
+                final ShellRunner.Result r = sh("settings put global mctga_dark_attach 1",
+                        12000, viaShizuku);
+                post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (r.ok()) {
+                            toast("深色适配已解锁并开启，重启目标应用后生效");
+                            setLog("最近操作：深色适配已解锁");
+                        } else {
+                            toast("已解锁，但开启失败：" + r.err.trim());
+                        }
+                        renderEnv();
+                    }
+                });
+            }
+        });
+    }
+
+    /** 深色功能门槛：必须同时具备 Root 与 LSPosed，否则该功能对用户不可见。 */
+    private boolean darkGate() {
+        return env != null && env.rootOk && env.lspdRunning;
+    }
+
+    /** 文案外置：布局发生变化就应用一次 texts.json 的覆盖（幂等，换过的节点打 tag）。 */
+
+    /** 文案外置：布局变化即应用；另外每 800ms 检查一次 texts.json，改完立刻反映到界面。 */
+    private void bindTextOverride() {
+        final android.view.View decor = getWindow().getDecorView();
+        decor.getViewTreeObserver().addOnGlobalLayoutListener(
+                new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
+                    @Override
+                    public void onGlobalLayout() {
+                        Texts.apply(decor);
+                    }
+                });
+        final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+        handler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (isFinishing() || isDestroyed()) return;
+                Texts.apply(decor);
+                handler.postDelayed(this, 800L);
+            }
+        }, 800L);
+    }
+
+    /** 主界面设备信息：品牌机型 + 设备代号 + 完整版本串（全部反射读取，不依赖特权通道）。 */
+    private void addDeviceLine(LinearLayout root) {
+        TextView tv = new TextView(this);
+        tv.setTextSize(11.5f);
+        tv.setTextColor(COLOR_FAINT);
+        tv.setLineSpacing(dp(3), 1f);
+        tv.setPadding(0, dp(2), 0, 0);
+        String id = OsVersion.prop("ro.build.display.id");
+        if (id.isEmpty()) id = OsVersion.prop("ro.build.fingerprint");
+        tv.setText("设备：" + android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL
+                + "（" + android.os.Build.DEVICE + "）\n版本名称：" + id);
+        root.addView(tv);
+    }
+
+    /** 顶栏云控公告（没有就不占位）。 */
+    private void addCloudNotice(LinearLayout root) {
+        cloudNotice = new TextView(this);
+        cloudNotice.setTextSize(11.5f);
+        cloudNotice.setTextColor(COLOR_WARN);
+        cloudNotice.setPadding(0, dp(6), 0, 0);
+        cloudNotice.setVisibility(View.GONE);
+        root.addView(cloudNotice);
+    }
+
+    /** 轻档云控：拉一次 cloud.json，只做提示，失败静默。 */
+    private void loadCloud() {
+        if (!Cloud.enabled()) return;
+        Cloud.fetch(new Cloud.Callback() {
+            @Override
+            public void onResult(Cloud.Info info) {
+                if (info == null) return;
+                if (info.notice != null && info.notice.length() > 0 && cloudNotice != null) {
+                    cloudNotice.setText(info.notice);
+                    cloudNotice.setVisibility(View.VISIBLE);
+                }
+                int cur = vcode();
+                boolean blocked = false;
+                for (int b : info.blocked) {
+                    if (b == cur) {
+                        blocked = true;
+                        break;
+                    }
+                }
+                writeCloudBlockFlag(blocked);
+                if (blocked) {
+                    showCloudBlocked(info);
+                } else if (info.minVersionCode > 0 && cur < info.minVersionCode) {
+                    showCloudUpdate(info, false);
+                }
+            }
+        });
+    }
+
+    private void showCloudUpdate(final Cloud.Info info, boolean blocked) {
+        if (!canShowDialog()) return;
+        String title = blocked ? "此版本已停用" : "需要更新";
+        String msg = info.notice != null && info.notice.length() > 0
+                ? info.notice
+                : (blocked ? "当前版本已被停用，请下载新版本。" : "当前版本过旧，请下载新版本。");
+        AlertDialog.Builder b = new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setMessage(msg)
+                .setPositiveButton("知道了", null);
+        if (info.downloadUrl != null && info.downloadUrl.length() > 0) {
+            b.setNeutralButton("去下载", new DialogInterface.OnClickListener() {
+                @Override
+                public void onClick(DialogInterface d, int w) {
+                    try {
+                        startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW,
+                                android.net.Uri.parse(info.downloadUrl)));
+                    } catch (Throwable t) {
+                        toast("打不开链接：" + info.downloadUrl);
+                    }
+                }
+            });
+        }
+        b.show();
+    }
+
+    /** 版本被停用：拦住整个界面，只能退出。 */
+    private boolean cloudBlocked;
+
+    @Override
+    public void onBackPressed() {
+        if (cloudBlocked) return;
+        super.onBackPressed();
+    }
+
+    private void showCloudBlocked(final Cloud.Info info) {
+        cloudBlocked = true;
+        if (isFinishing()) return;
+        String msg = info.notice != null && info.notice.length() > 0
+                ? info.notice
+                : "当前版本已被停用，请下载新版本后再使用。";
+        AlertDialog d = new AlertDialog.Builder(this)
+                .setTitle("此版本已停用")
+                .setMessage(msg)
+                .setCancelable(false)
+                .setPositiveButton("退出应用", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        finishAffinity();
+                    }
+                })
+                .create();
+        d.setCanceledOnTouchOutside(false);
+        d.show();
+    }
+
+    /** 把云控停用状态写成系统属性，供 Hook 在目标应用进程里判断（Hook 读属性不需要上下文）。 */
+    private void writeCloudBlockFlag(final boolean blocked) {
+        exec.execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    RootShell.shell("setprop persist.mctga.cloud_block " + (blocked ? "1" : "0"), 8000);
+                } catch (Throwable ignored) {
+                }
+            }
+        });
+    }
+
+    private String systemUiRestartText() {
+        return "切换深浅色时自动重启 SystemUI："
+                + ("1".equals(OsVersion.prop("persist.mctga.systemui_restart")) ? "开" : "关");
+    }
+
+    /** 由用户决定切深浅色时要不要重启 SystemUI（重启会让配置/背景立刻生效，但会黑屏一下）。 */
+    private void toggleSystemUiRestart() {
+        final boolean next = !"1".equals(OsVersion.prop("persist.mctga.systemui_restart"));
+        exec.execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    RootShell.shell("setprop persist.mctga.systemui_restart " + (next ? "1" : "0"), 8000);
+                } catch (Throwable ignored) {
+                }
+                post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (btnRestart != null) btnRestart.setText(systemUiRestartText());
+                        toast(next ? "已开启：切深浅色会重启 SystemUI（会黑屏一下）"
+                                : "已关闭：切深浅色不再重启 SystemUI");
+                    }
+                });
+            }
+        });
+    }
 }
