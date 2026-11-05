@@ -3,7 +3,7 @@
 让 ColorOS 17 在深色模式下也能加载 `.theme` 主题，并补齐主题引擎不会解压的联系人 / 短信主题包。
 
 - 包名：`xwdy.deepseek.test`
-- 版本：`0.5.1`（versionCode 221）
+- 版本：`0.5.2`（versionCode 222）
 - 系统：ColorOS 11+ / realme UI（深色适配仍只在 ColorOS 17 上启用）
 
 ## 功能
