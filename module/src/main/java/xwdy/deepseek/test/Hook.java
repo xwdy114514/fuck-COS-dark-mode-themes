@@ -36,6 +36,12 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
             "com.coloros.shortcuts",
     };
 
+    /** 只注入插画 + 蒙层，不清任何背景：这些包没有主题素材，卡片需要保留。 */
+    private static final String[] LIGHT_BG = {
+            "com.oplus.wirelesssettings",
+            "com.oplus.linker",
+    };
+
     private static final String[] TARGETS = {
             "com.android.settings",
             "com.android.systemui",
@@ -57,6 +63,8 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
             "com.oplus.tips",
             "com.coloros.shortcuts",
             "com.android.stk",
+            "com.oplus.wirelesssettings",
+            "com.oplus.linker",
     };
 
     /**
@@ -127,10 +135,6 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
         } catch (Throwable ignored) {
         }
         return null;
-    }
-
-    private static String packBaseDir(String pkg, Object activity) {
-        return packBaseDir(pkg);
     }
 
     /** 判断主题 zip 里有没有夜间资源；拿不到 ZipFile 时按“有”处理，保持原行为。 */
@@ -247,6 +251,7 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
     private static int sBlurId = -1;
     private static int sLastUiMode = -1;
 
+
     @Override
     public void initZygote(IXposedHookZygoteInit.StartupParam param) {
         log("MCTGA loaded");
@@ -267,17 +272,16 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
 
     private static String sCurPkg;
 
-    /** 蒙层：深色压暗、亮色提亮，缓解插画与 UI 文字的对比冲突；不改主题包。 */
-    private static final int MASK_NIGHT = 0x8C000000; // 55% 黑
+    /** 蒙层：深色直接放行（主题的 night 图本身就是深色底），亮色叠 60% 白，缓解插画与文字冲突；不改主题包。 */
     private static final int MASK_DAY = 0x99FFFFFF;   // 60% 白
 
     private static Drawable withMask(Drawable base, boolean night) {
         if (base == null) return null;
         try {
-            int mask = night ? MASK_NIGHT : MASK_DAY;
+            if (night) return base;   // 模块不再压暗：深色底交给主题的 night 图
             android.graphics.drawable.LayerDrawable l =
                     new android.graphics.drawable.LayerDrawable(
-                            new Drawable[]{base, new android.graphics.drawable.ColorDrawable(mask)});
+                            new Drawable[]{base, new android.graphics.drawable.ColorDrawable(MASK_DAY)});
             return l;
         } catch (Throwable t) {
             log("mask fail " + t);
@@ -288,6 +292,22 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
     /** 资源层蒙层：主题窗口背景走系统主题资源（contacts/mms/settings 等），不经 loadBg。 */
     private static final java.util.HashMap<Integer, Boolean> sBgResIds =
             new java.util.HashMap<Integer, Boolean>();
+
+    private static int sDialpadId = -1;
+
+    /** 拨号盘底板：主题给的是浅灰 9-patch，深色下用纯色（不带任何内置素材）。 */
+    private static Drawable dialpadSolid(Drawable ref) {
+        try {
+            android.graphics.drawable.GradientDrawable gd =
+                    new android.graphics.drawable.GradientDrawable();
+            float r = 84f;
+            gd.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
+            gd.setColor(isNight() ? 0xFF101014 : 0xFFF6F3F8);
+            return gd;
+        } catch (Throwable t) {
+            return ref;
+        }
+    }
 
     private static boolean isWindowBgName(String n) {
         if (n == null) return false;
@@ -304,7 +324,7 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
             Drawable top = l.getDrawable(n - 1);
             if (!(top instanceof android.graphics.drawable.ColorDrawable)) return false;
             int c = ((android.graphics.drawable.ColorDrawable) top).getColor();
-            return c == MASK_NIGHT || c == MASK_DAY;
+            return c == MASK_DAY;
         } catch (Throwable t) {
             return false;
         }
@@ -340,10 +360,19 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
                             n = ((android.content.res.Resources) p.thisObject).getResourceEntryName(id);
                         } catch (Throwable ignored) {
                         }
-                        hit = Boolean.valueOf(isWindowBgName(n));
+                        if ("pb_bg_dialer".equals(n)) {
+                            sDialpadId = id;
+                            hit = Boolean.TRUE;
+                        } else {
+                            hit = Boolean.valueOf(isWindowBgName(n));
+                        }
                         sBgResIds.put(Integer.valueOf(id), hit);
                     }
                     if (!hit.booleanValue()) return;
+                    if (id == sDialpadId) {
+                        p.setResult(dialpadSolid(dr));
+                        return;
+                    }
                     p.setResult(withMask(dr, isNight()));
                 } catch (Throwable ignored) {
                 }
@@ -381,25 +410,28 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
         }
     }
 
-    /** 先找本应用自己的主题包，取不到再扫其它包。 */
+    /** 先找本应用自己的主题包（系统 /data/theme → .theme 源文件 → 缓存），取不到再扫其它包。 */
     private static Bitmap loadFromPacks(String pkg, String entry, String alt) {
         java.io.File own = null;
         if (pkg != null) {
-            java.io.File[] cands = {
-                    new java.io.File(PACK_DIR, pkg),
-                    new java.io.File("/data/theme/" + pkg),
-            };
-            for (java.io.File f : cands) {
-                if (f.isFile()) {
-                    own = f;
-                    for (String e : new String[]{entry, alt}) {
-                        Bitmap bm = readZipEntry(f, e);
-                        if (bm != null) {
-                            log("bg from own " + f.getName() + " " + e);
-                            return bm;
-                        }
-                    }
-                }
+            java.io.File sys = new java.io.File("/data/theme/" + pkg);
+            Bitmap bm = readPackFor(sys, entry, alt);
+            if (bm != null) {
+                own = sys;
+                log("bg from system " + pkg + " " + entry);
+                return bm;
+            }
+            bm = loadFromThemeFile(pkg, entry, alt);
+            if (bm != null) {
+                log("bg from theme file " + pkg + " " + entry);
+                return bm;
+            }
+            java.io.File cache = new java.io.File(PACK_DIR, pkg);
+            bm = readPackFor(cache, entry, alt);
+            if (bm != null) {
+                own = cache;
+                log("bg from cache " + pkg + " " + entry);
+                return bm;
             }
         }
         java.util.List<java.io.File> packs = new java.util.ArrayList<java.io.File>();
@@ -410,12 +442,21 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
         for (String e : new String[]{entry, alt}) {
             for (java.io.File pack : packs) {
                 if (own != null && pack.getAbsolutePath().equals(own.getAbsolutePath())) continue;
-                Bitmap bm = readZipEntry(pack, e);
-                if (bm != null) {
+                Bitmap bm2 = readZipEntry(pack, e);
+                if (bm2 != null) {
                     log("bg from " + pack.getName() + " " + e);
-                    return bm;
+                    return bm2;
                 }
             }
+        }
+        return null;
+    }
+
+    private static Bitmap readPackFor(java.io.File f, String entry, String alt) {
+        if (f == null || !f.isFile()) return null;
+        for (String e : new String[]{entry, alt}) {
+            Bitmap bm = readZipEntry(f, e);
+            if (bm != null) return bm;
         }
         return null;
     }
@@ -434,63 +475,6 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
             return null;
         } finally {
             if (zf != null) try { zf.close(); } catch (Throwable ignored) { }
-        }
-    }
-    private static Bitmap decodeWallpaper(java.io.File f) {
-        try {
-            java.util.zip.ZipFile zf = new java.util.zip.ZipFile(f);
-            try {
-                int sw, sh;
-                android.content.Context ctx = (android.content.Context) Class
-                        .forName("android.app.ActivityThread")
-                        .getMethod("currentApplication").invoke(null);
-                sw = ctx.getResources().getDisplayMetrics().widthPixels;
-                sh = ctx.getResources().getDisplayMetrics().heightPixels;
-                int want = Math.min(sw, sh);
-                log("wallpaper pick want=" + want);
-                java.util.zip.ZipEntry best = null;
-                long bestScore = Long.MAX_VALUE;
-                java.util.Enumeration<? extends java.util.zip.ZipEntry> es = zf.entries();
-                while (es.hasMoreElements()) {
-                    java.util.zip.ZipEntry e = es.nextElement();
-                    String n = e.getName();
-                    if (!n.endsWith(".png")) continue;
-                    long res = 0;
-                    java.util.regex.Matcher m = java.util.regex.Pattern
-                            .compile("-(\\d+)x(\\d+)").matcher(n);
-                    if (m.find()) {
-                        try {
-                            res = Math.min(Long.parseLong(m.group(1)),
-                                    Long.parseLong(m.group(2)));
-                        } catch (Throwable ignored) {
-                        }
-                    }
-                    long score = res == 0 ? 100000 : Math.abs(res - want);
-                    if (score < bestScore) {
-                        bestScore = score;
-                        best = e;
-                    }
-                }
-                if (best == null) {
-                    log("wallpaper no png entry");
-                    return null;
-                }
-                log("wallpaper entry " + best.getName() + " size=" + best.getSize());
-                java.io.InputStream is = zf.getInputStream(best);
-                Bitmap bm = BitmapFactory.decodeStream(is);
-                is.close();
-                if (bm == null) log("wallpaper decode null " + best.getName());
-                return bm;
-            } finally {
-                zf.close();
-            }
-        } catch (Throwable t) {
-            log("wallpaper zip fail " + t);
-            try {
-                return BitmapFactory.decodeFile(f.getAbsolutePath());
-            } catch (Throwable t2) {
-                return null;
-            }
         }
     }
 
@@ -613,9 +597,6 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
         return hit;
     }
 
-    private static boolean sPending;
-    private static long sLastDeep;
-    private static java.lang.ref.WeakReference<android.view.View> sDecorRef;
 
     /** 只清纯色/形状背景（容器底色），保留图片/9-patch 背景（主题按钮、图标）。 */
     private static int clearBgCount(android.view.View v, int depth) {
@@ -663,12 +644,27 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
         }
     }
 
-    /** 清掉一层容器的背景（保留图片背景）。 */
+    /** 悬浮按钮（FAB）自带底色，不能当“底色”清掉，否则只剩一团光晕。 */
+    private static boolean isFab(android.view.View v) {
+        try {
+            String n = idName(v);
+            if (n == null) return false;
+            n = n.toLowerCase();
+            return n.contains("floating_button") || n.contains("_fab") || n.endsWith("fab")
+                    || n.contains("switch");
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** 清掉一层容器的背景（保留图片背景与 FAB 底色）。 */
     private static void clearBg(android.view.View v, int depth) {
         if (v == null || depth < 0) return;
         try {
-            android.graphics.drawable.Drawable d = v.getBackground();
-            if (d != null && isPlainBg(d)) v.setBackground(null);
+            if (!isFab(v)) {
+                android.graphics.drawable.Drawable d = v.getBackground();
+                if (d != null && isPlainBg(d)) v.setBackground(null);
+            }
         } catch (Throwable ignored) {
         }
         if (v instanceof android.view.ViewGroup) {
@@ -811,16 +807,6 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
             log("hideNoise fail " + t);
         }
     }
-    private static boolean dumpEnabled() {
-        try {
-            Object v = XposedHelpers.callStaticMethod(
-                    XposedHelpers.findClass("android.os.SystemProperties", null),
-                    "get", "debug.cosnight.dump", "0");
-            return "1".equals(v);
-        } catch (Throwable t) {
-            return false;
-        }
-    }
 
     private static Boolean readAttachFlag() {
         try {
@@ -872,6 +858,10 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
 
         if (!isOplusSupported()) {
             log("skip: unsupported OS pkg=" + lp.packageName);
+            return;
+        }
+        if ("1".equals(OsVersion.prop("persist.mctga.cloud_block"))) {
+            log("cloud blocked, skip pkg=" + lp.packageName);
             return;
         }
         log("loaded pkg=" + lp.packageName);
@@ -1003,6 +993,8 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
             log("hook gis fail " + t);
         }
 
+        if (isLight(lp.packageName)) hookLightBg(lp);
+        if ("com.android.contacts".equals(lp.packageName)) hookDialpadFix(lp);
         hookResMask(lp);
 
         if ("com.android.systemui".equals(lp.packageName)) {
@@ -1019,17 +1011,23 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
                             int last = sLastUiMode;
                             sLastUiMode = ui;
                             if (last != -1 && last != ui && ui != 0) {
-                                log("ui mode changed " + last + " -> " + ui + ", restarting systemui");
-                                new Thread(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        try {
-                                            Thread.sleep(1200L);
-                                        } catch (Throwable ignored) {
+                                sBg = null;
+                                sBgKey = null;
+                                final boolean restart = "1".equals(OsVersion.prop("persist.mctga.systemui_restart"));
+                                log("ui mode changed " + last + " -> " + ui
+                                        + (restart ? ", restarting systemui" : ", bg cache cleared"));
+                                if (restart) {
+                                    new Thread(new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            try {
+                                                Thread.sleep(1200L);
+                                            } catch (Throwable ignored) {
+                                            }
+                                            android.os.Process.killProcess(android.os.Process.myPid());
                                         }
-                                        android.os.Process.killProcess(android.os.Process.myPid());
-                                    }
-                                }).start();
+                                    }).start();
+                                }
                             }
                         } catch (Throwable t) {
                             log("ui mode fail " + t);
@@ -1072,6 +1070,213 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
                 log("hooked day color");
             } catch (Throwable t) {
                 log("hook day color fail " + t);
+            }
+        }
+    }
+
+    /** 轻模式：只换窗口背景（带蒙层），不动卡片背景。 */
+    private static void hookLightBg(XC_LoadPackage.LoadPackageParam lp) {
+        XposedBridge.hookAllMethods(android.app.Activity.class, "onResume", new XC_MethodHook() {
+            @Override
+            protected void afterHookedMethod(MethodHookParam p) {
+                try {
+                    android.app.Activity act = (android.app.Activity) p.thisObject;
+                    Window w = act.getWindow();
+                    if (w == null) return;
+                    sCurPkg = lp.packageName;
+                    int solid = isNight() ? 0xFF15121A : 0xFFF6F3F8;
+                    Drawable d = new android.graphics.drawable.ColorDrawable(solid);
+                    if (d == null) return;
+                    android.view.View decor = w.getDecorView();
+                    if (decor == null) return;
+                    decor.setBackground(d);
+                    log("light bg ok act=" + act.getComponentName().getClassName());
+                } catch (Throwable t) {
+                    log("light bg fail " + t);
+                }
+            }
+        });
+        log("light bg hooked " + lp.packageName);
+    }
+
+    private static boolean isLight(String pkg) {
+        for (String s : LIGHT_BG) {
+            if (s.equals(pkg)) return true;
+        }
+        return false;
+    }
+
+    /** 拨号盘容器：主题给的是半透明浅灰，深色下换成黑底（保留顶部圆角）。 */
+    private static void hookDialpadFix(XC_LoadPackage.LoadPackageParam lp) {
+        XposedBridge.hookAllMethods(android.app.Activity.class, "onResume", new XC_MethodHook() {
+            @Override
+            protected void afterHookedMethod(MethodHookParam p) {
+                try {
+                    android.app.Activity act = (android.app.Activity) p.thisObject;
+                    Window w = act.getWindow();
+                    if (w == null) return;
+                    final android.view.View decor = w.getDecorView();
+                    if (decor == null) return;
+                    try {
+                        w.setNavigationBarColor(isNight() ? 0xFF101014 : 0xFFF6F3F8);
+                        w.setNavigationBarContrastEnforced(false);
+                        w.setDecorFitsSystemWindows(false);
+                        w.setNavigationBarColor(0);
+                    } catch (Throwable ignored) {
+                    }
+                    // 拨号页背景：交给主题资源（loadBg 读主题包），模块不再内置任何素材
+                    if (act.getComponentName().getClassName().contains("Dialtacts")) {
+                        Drawable contactBg = loadBg(act);
+                        if (contactBg != null) decor.setBackground(contactBg);
+                    }
+                    Runnable r = new Runnable() {
+                        @Override
+                        public void run() {
+                            try {
+                                fixDialpad(decor);
+                            } catch (Throwable ignored) {
+                            }
+                        }
+                    };
+                    decor.post(r);
+                    decor.postDelayed(r, 500L);
+                    decor.postDelayed(r, 1500L);
+                } catch (Throwable t) {
+                    log("dialpad fail " + t);
+                }
+            }
+        });
+        log("dialpad hooked " + lp.packageName);
+    }
+
+    private static void fixDialpad(android.view.View v) {
+        if (v == null) return;
+        try {
+            android.graphics.Rect rc = new android.graphics.Rect();
+            v.getGlobalVisibleRect(rc);
+            if (rc.top >= 2100 && rc.width() > 800 && v.getBackground() != null) {
+                v.setBackground(null);
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
+            String n = idName(v);
+            if (n != null && n.equals("nav_chrome_group")) {
+                log("nav clear hit " + v.getClass().getName());
+                v.setBackgroundColor(isNight() ? 0xFF101014 : 0xFFF6F3F8);
+                android.view.ViewParent pv = v.getParent();
+                for (int k = 0; k < 2 && pv instanceof android.view.View; k++) {
+                    ((android.view.View) pv).setBackground(null);
+                    pv = pv.getParent();
+                }
+                if (v instanceof android.view.ViewGroup) {
+                    android.view.ViewGroup g = (android.view.ViewGroup) v;
+                    for (int i = 0; i < g.getChildCount(); i++) {
+                        android.view.View c = g.getChildAt(i);
+                        c.setBackground(null);
+                        if (c instanceof android.view.ViewGroup) {
+                            android.view.ViewGroup gg = (android.view.ViewGroup) c;
+                            for (int j = 0; j < gg.getChildCount(); j++) {
+                                gg.getChildAt(j).setBackground(null);
+                            }
+                        }
+                    }
+                }
+            }
+            if (n != null && n.equals("dialpad_container")) {
+                int color = isNight() ? 0xFF101014 : 0xFFF6F3F8;
+                android.graphics.drawable.GradientDrawable gd =
+                        new android.graphics.drawable.GradientDrawable();
+                float r = 28f * v.getResources().getDisplayMetrics().density;
+                gd.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
+                gd.setColor(color);
+                v.setBackground(gd);
+            }
+        } catch (Throwable ignored) {
+        }
+        if (v instanceof android.view.ViewGroup) {
+            android.view.ViewGroup g = (android.view.ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) fixDialpad(g.getChildAt(i));
+        }
+    }
+
+    private static void clearBgAll(android.view.View v) {
+        if (v == null) return;
+        try {
+            v.setBackground(null);
+        } catch (Throwable ignored) {
+        }
+        if (v instanceof android.view.ViewGroup) {
+            android.view.ViewGroup g = (android.view.ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) clearBgAll(g.getChildAt(i));
+        }
+    }
+
+    // 直接读用户最新的 .theme 源文件：主题作者换图后（重新导出 .theme）即可换角色，
+    // 不依赖系统是否把该包应用进 /data/theme，也不依赖 /data/local/tmp 的旧副本。
+    private static java.util.zip.ZipFile sThemeZip;
+    private static String sThemeZipPath;
+    private static long sThemeZipMtime;
+
+    private static java.io.File newestThemeFile() {
+        java.io.File best = null;
+        java.io.File[] fs = new java.io.File("/storage/emulated/0").listFiles();
+        if (fs == null) return null;
+        for (java.io.File f : fs) {
+            if (f == null || !f.isFile()) continue;
+            String n = f.getName().toLowerCase();
+            if (!n.endsWith(".theme")) continue;
+            if (best == null || f.lastModified() > best.lastModified()) best = f;
+        }
+        return best;
+    }
+
+    private static Bitmap loadFromThemeFile(String pkg, String entry, String alt) {
+        try {
+            java.io.File tf = newestThemeFile();
+            if (tf == null) return null;
+            if (sThemeZip == null || !tf.getAbsolutePath().equals(sThemeZipPath)
+                    || tf.lastModified() != sThemeZipMtime) {
+                if (sThemeZip != null) {
+                    try {
+                        sThemeZip.close();
+                    } catch (Throwable ignored) {
+                    }
+                    sThemeZip = null;
+                }
+                sThemeZip = new java.util.zip.ZipFile(tf);
+                sThemeZipPath = tf.getAbsolutePath();
+                sThemeZipMtime = tf.lastModified();
+            }
+            java.util.zip.ZipEntry e = sThemeZip.getEntry(pkg);
+            if (e == null) return null;
+            byte[] inner = readAllBytes(sThemeZip.getInputStream(e));
+            java.util.zip.ZipInputStream zin =
+                    new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(inner));
+            java.util.zip.ZipEntry x;
+            while ((x = zin.getNextEntry()) != null) {
+                String name = x.getName();
+                if (!name.equals(entry) && !name.equals(alt)) continue;
+                Bitmap bm = android.graphics.BitmapFactory.decodeStream(zin);
+                if (bm != null) return bm;
+            }
+        } catch (Throwable t) {
+            log("theme file read fail " + t);
+        }
+        return null;
+    }
+
+    private static byte[] readAllBytes(java.io.InputStream in) throws java.io.IOException {
+        try {
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            byte[] b = new byte[16384];
+            int n;
+            while ((n = in.read(b)) > 0) bo.write(b, 0, n);
+            return bo.toByteArray();
+        } finally {
+            try {
+                in.close();
+            } catch (Throwable ignored) {
             }
         }
     }
