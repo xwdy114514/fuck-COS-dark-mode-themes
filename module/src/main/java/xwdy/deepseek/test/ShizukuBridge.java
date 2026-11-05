@@ -46,27 +46,8 @@ public final class ShizukuBridge {
         }
     }
 
-    public static ShellRunner.Result shell(final String command, long timeoutMs) {
-        return ShellRunner.run(new ShellRunner.Factory() {
-            @Override
-            public Process start(String cmd) throws Exception {
-                Method method = Shizuku.class.getDeclaredMethod(
-                        "newProcess", String[].class, String[].class, String.class);
-                method.setAccessible(true);
-                try {
-                    return (Process) method.invoke(null,
-                            new Object[]{new String[]{"sh", "-c", cmd}, null, null});
-                } catch (InvocationTargetException e) {
-                    Throwable cause = e.getCause();
-                    if (cause instanceof Exception) throw (Exception) cause;
-                    throw new IOException("远端进程启动失败", cause);
-                }
-            }
-        }, command, timeoutMs);
-    }
-
-    /** 起一个 Shizuku shell 进程（stdout 当字节流用），用于把外部文件流式读进 app 缓存。 */
-    public static Process process(final String command) throws Exception {
+    /** 起一个远端 shell 进程；shell() 与 process() 共用这一处反射，别再各写一遍。 */
+    private static Process newProcess(String command) throws Exception {
         Method method = Shizuku.class.getDeclaredMethod(
                 "newProcess", String[].class, String[].class, String.class);
         method.setAccessible(true);
@@ -78,5 +59,19 @@ public final class ShizukuBridge {
             if (cause instanceof Exception) throw (Exception) cause;
             throw new IOException("远端进程启动失败", cause);
         }
+    }
+
+    public static ShellRunner.Result shell(final String command, long timeoutMs) {
+        return ShellRunner.run(new ShellRunner.Factory() {
+            @Override
+            public Process start(String cmd) throws Exception {
+                return newProcess(cmd);
+            }
+        }, command, timeoutMs);
+    }
+
+    /** 起一个 Shizuku shell 进程（stdout 当字节流用），用于把外部文件流式读进 app 缓存。 */
+    public static Process process(final String command) throws Exception {
+        return newProcess(command);
     }
 }
