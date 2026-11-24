@@ -35,10 +35,21 @@ public final class EnvCheck {
     private EnvCheck() {
     }
 
+    /** Shared evidence for UI gating and diagnostics; a leftover directory is not a running daemon. */
+    static String lspdProbe() {
+        return "echo LSPD:$(pidof lspd 2>/dev/null | head -1)\n";
+    }
+    static boolean lspdRunning(String output) {
+        for (String line : output.split("\r?\n")) {
+            if (line.startsWith("LSPD:") && !line.substring(5).trim().isEmpty()) return true;
+        }
+        return false;
+    }
+
     private static String probeScript() {
         StringBuilder sb = new StringBuilder();
         sb.append("echo ROOT:$(id -u)\n");
-        sb.append("echo LSPD:$(pidof lspd | head -1)\n");
+        sb.append(lspdProbe());
         sb.append("[ -d /data/theme ] && echo THEMEDIR:1 || echo THEMEDIR:0\n");
         sb.append("echo COUNT:$(ls /data/theme 2>/dev/null | wc -l)\n");
         for (String p : SAMPLE_PACKAGES) {
@@ -60,7 +71,7 @@ public final class EnvCheck {
             if (line.startsWith("ROOT:")) {
                 r.rootOk = "0".equals(line.substring(5).trim());
             } else if (line.startsWith("LSPD:")) {
-                r.lspdRunning = !line.substring(5).trim().isEmpty();
+                r.lspdRunning = lspdRunning(s.out);
             } else if (line.startsWith("THEMEDIR:")) {
                 r.themeDirPresent = "1".equals(line.substring(9).trim());
             } else if (line.startsWith("COUNT:")) {
@@ -88,12 +99,12 @@ public final class EnvCheck {
         if (r.rootOk) {
             d.append(" · LSPosed ").append(r.lspdRunning ? "运行中" : "未运行");
             d.append(" · /data/theme ").append(r.themeDirPresent
-                    ? r.themeFileCount + " 个主题包" : "不存在");
+                    ? r.themeFileCount + " 个目录项（不代表已应用主题包）" : "不存在");
             if (!r.samplePkg.isEmpty()) {
                 d.append(" · 夜间资源 ").append(r.sampleNight).append(" 项");
             }
         } else {
-            d.append(" · 无 Root，读不到 LSPosed 与 /data/theme");
+            d.append(" · Root 检测未通过，主题与框架状态未确认");
         }
 
         if (!OsVersion.colorOs()) {
@@ -104,25 +115,25 @@ public final class EnvCheck {
             r.level = LEVEL_UNAVAILABLE;
             r.verdict = OsVersion.unsupportedHint();
             d.insert(0, OsVersion.label() + " · ");
-        } else if (s.timedOut) {
+        } else if (!s.ok()) {
             r.level = LEVEL_UNKNOWN;
-            r.verdict = "检测超时，结果未知";
+            r.verdict = "检测失败或超时，结果未知";
         } else if (!r.rootOk) {
             r.level = LEVEL_UNKNOWN;
-            r.verdict = "无法确认：读 LSPosed 与 /data/theme 需要 Root，不影响模块已生效";
+            r.verdict = "未确认：需要可用 Root 通道读取主题与框架状态。";
         } else if (!r.lspdRunning) {
             r.level = LEVEL_UNAVAILABLE;
-            r.verdict = "不可用：LSPosed 守护进程没运行";
+            r.verdict = "未检测到 LSPosed 运行，请检查框架状态。";
         } else if (r.nightEntries == 0) {
             r.level = LEVEL_LIMITED;
             if (!r.themeDirPresent || r.themeFileCount == 0) {
-                r.verdict = "待准备：/data/theme 里还没有主题";
+                r.verdict = "未检测到主题目录或目录为空。请先在商店应用主题。";
             } else {
-                r.verdict = "有限：主题缺 drawable-night，深色下变化很小";
+                r.verdict = "抽样未检出夜间资源。可能未应用主题、主题无夜间资源或资源不可读；缓存存在不代表已生效。";
             }
         } else {
             r.level = LEVEL_USABLE;
-            r.verdict = "可用：主题含夜间资源，LSPosed 运行中，当前"
+            r.verdict = "已检出夜间资源与 LSPosed 进程，不代表所有界面已生效。当前为"
                     + (darkMode ? "深色" : "浅色") + "模式";
         }
         r.detail = d.toString();

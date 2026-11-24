@@ -17,12 +17,20 @@ import java.util.List;
  * 支持两种命中：
  * 1) 整串精确命中（普通按钮、标题）；
  * 2) 片段命中（拼接出来的状态行，例如 "已锁定（空文件） · 商店已挂起" 里的 " · 商店已挂起"）。
- *    片段只取长度 >= 6 的键，避免 "（" "）" 这类短词误伤。
+ *    片段只取长度 >= 3 且含文字或数字的键，避免 "（" "）" 这类短词误伤。
  */
 public final class Texts {
 
     public static final String FILE = "/storage/emulated/0/MCTGA/texts.json";
-    private static final String TAG_PREFIX = "mctga_text:";
+    // Do not overwrite View tags owned by the application. Weak keys do not retain destroyed views.
+    private static final java.util.WeakHashMap<TextView, TextState> states =
+            new java.util.WeakHashMap<TextView, TextState>();
+    private static final class TextState {
+        String origin, applied;
+        boolean hiddenByTexts;
+        int previousVisibility;
+        TextState(String text) { origin = text; applied = text; }
+    }
     private static final int MIN_FRAGMENT = 3;
 
     /** 可做片段替换的键：至少 3 个字符，且含文字/数字，避免 "（" "）" 这类符号误伤。 */
@@ -172,40 +180,41 @@ public final class Texts {
 
     private static void applyRec(View v) {
         if (v == null) return;
-        if (v instanceof TextView) {
-            TextView tv = (TextView) v;
-            if (map != null) {
-                Object tag = tv.getTag();
-                if (tag instanceof String && ((String) tag).startsWith(TAG_PREFIX)) {
-                    applyOne(tv, ((String) tag).substring(TAG_PREFIX.length()));
-                } else {
-                    CharSequence cs = tv.getText();
-                    if (cs != null) {
-                        String s = cs.toString();
-                        String want = transform(s);
-                        if (!want.equals(s)) {
-                            tv.setTag(TAG_PREFIX + s);
-                            applyOne(tv, s);
-                        }
-                    }
-                }
-            }
-        }
+        if (v instanceof TextView) applyOne((TextView) v);
         if (v instanceof ViewGroup) {
             ViewGroup g = (ViewGroup) v;
             for (int i = 0; i < g.getChildCount(); i++) applyRec(g.getChildAt(i));
         }
     }
 
-    /** 文案被清空时当作不存在：隐藏控件，不留空隙；恢复成非空再显示回来。 */
-    private static void applyOne(TextView tv, String origin) {
-        String want = transform(origin);
-        if (want.length() == 0 && origin.length() > 0) {
-            if (tv.getVisibility() != View.GONE) tv.setVisibility(View.GONE);
-            return;
+    /** Track the latest business text; restore only visibility changes owned by Texts. */
+    private static void applyOne(TextView tv) {
+        String current = String.valueOf(tv.getText());
+        TextState state = states.get(tv);
+        if (state == null) {
+            if (map == null) return;
+            state = new TextState(current);
+            states.put(tv, state);
+        } else if (!current.equals(state.applied)) {
+            state.origin = current;
         }
-        if (tv.getVisibility() == View.GONE) tv.setVisibility(View.VISIBLE);
-        if (!want.contentEquals(tv.getText())) tv.setText(want);
+        if (state.hiddenByTexts && tv.getVisibility() != View.GONE) {
+            state.hiddenByTexts = false; // business layer took control again
+        }
+        String want = map == null ? state.origin : transform(state.origin);
+        if (want.isEmpty() && !state.origin.isEmpty()) {
+            if (tv.getVisibility() != View.GONE) {
+                state.previousVisibility = tv.getVisibility();
+                state.hiddenByTexts = true;
+                tv.setVisibility(View.GONE);
+            }
+        } else if (state.hiddenByTexts) {
+            tv.setVisibility(state.previousVisibility);
+            state.hiddenByTexts = false;
+        }
+        if (!want.equals(current)) tv.setText(want);
+        state.applied = want;
+        if (map == null) states.remove(tv);
     }
 
     /** 供诊断用：当前覆盖条数。 */

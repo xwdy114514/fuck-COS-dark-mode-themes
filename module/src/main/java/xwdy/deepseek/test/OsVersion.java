@@ -14,7 +14,7 @@ package xwdy.deepseek.test;
  *     realme UI 若也能读到 ColorOS 基线就用基线判，否则看 realme UI 版本 ≥ 2.0，
  *     再不行按 Android ≥ 11 兜底（realme UI 2.0 起就是 Android 11）。
  *
- * 版本号解析走 shell（宿主机没有 C 编译器，不用 JNI）。
+ * 版本号使用纯 Java 解析，不依赖 Root / Shizuku。
  */
 public final class OsVersion {
 
@@ -129,7 +129,7 @@ public final class OsVersion {
 
     // ---------------------------------------------------------------- 版本号
 
-    /** 纯 Java 兜底：只处理 "17.0.0" 这种纯数字前缀。 */
+    /** 提取版本串中第一段数字，支持 V17.0.0、realme UI 7.0 等前缀。 */
     public static int parseDigits(String text) {
         if (text == null) return 0;
         int n = 0;
@@ -147,46 +147,8 @@ public final class OsVersion {
         return seen ? n : 0;
     }
 
-    private static String parseScript(String version) {
-        String safe = version.replace("'", "").replace("\n", "");
-        return "S='" + safe + "'\n"
-                + "seen=0; num=''; i=0; L=${#S}\n"
-                + "while [ $i -lt $L ]; do\n"
-                + "  C=$(echo \"$S\" | cut -c$((i + 1)))\n"
-                + "  case \"$C\" in\n"
-                + "    [0-9]) seen=1; num=\"$num$C\" ;;\n"
-                + "    *) [ $seen = 1 ] && break ;;\n"
-                + "  esac\n"
-                + "  i=$((i + 1))\n"
-                + "done\n"
-                + "V=0\n"
-                + "if [ $seen = 1 ] && [ -n \"$num\" ]; then\n"
-                + "  V=$num\n"
-                + "  for K in 10000 5000 2500 1500 750 500 300 200 100; do\n"
-                + "    X=$((V / K)); Y=$((V % K))\n"
-                + "    if [ $X -gt 100 ]; then V=$((K + Y)); else V=$((X + Y)); fi\n"
-                + "  done\n"
-                + "fi\n"
-                + "echo MAJOR:$V\n";
-    }
-
+    /** Parsing a property is pure computation: never request privilege or block startup. */
     private static int parseVersion(String version) {
-        if (version == null || version.isEmpty()) return 0;
-        ShellRunner.Result r;
-        if (ShizukuBridge.granted()) {
-            r = ShizukuBridge.shell(parseScript(version), 12000);
-        } else {
-            r = RootShell.shell(parseScript(version), 12000);
-        }
-        for (String line : r.out.split("\r?\n")) {
-            String s = line.trim();
-            if (s.startsWith("MAJOR:")) {
-                try {
-                    return Integer.parseInt(s.substring(6).trim());
-                } catch (Throwable ignored) {
-                }
-            }
-        }
         return parseDigits(version);
     }
 

@@ -4,19 +4,18 @@ set -e
 PROJ=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 MOD="$PROJ/cloud-editor"
 P=${TOOLCHAIN_PREFIX:-/data/local/tmp/tc/prefix}
-JAVA_HOME=${JAVA_HOME:-$P/lib/jvm/java-21-openjdk}
-JAVA="$JAVA_HOME/bin"
-AJ=${ANDROID_JAR:-/data/local/tmp/sdk/android-35/android.jar}
-KS=${KEYSTORE:-$PROJ/tools/eta.keystore}
+. "$PROJ/tools/build-common.sh"
 OUT="$PROJ/out"
 B="$OUT/cloud"
 rm -rf "$B"
 mkdir -p "$B/classes" "$B/dex" "$OUT"
 export LD_LIBRARY_PATH="$JAVA_HOME/lib:$JAVA_HOME/lib/server:$P/lib:${LD_LIBRARY_PATH:-}"
 
-echo "== aapt2 link =="
+VER=$(sed -n 's/.*android:versionName="\([^"]*\)".*/\1/p' "$MOD/AndroidManifest.xml" | head -1)
+[ -n "$VER" ] || VER=1.0
+echo "== aapt2 link (v$VER) =="
 "$P/bin/aapt2" link -o "$B/base.apk" -I "$AJ" --manifest "$MOD/AndroidManifest.xml" \
-  --min-sdk-version 29 --target-sdk-version 35 --auto-add-overlay
+  --auto-add-overlay
 
 echo "== javac =="
 find "$MOD/src" -name '*.java' > "$B/sources.txt"
@@ -24,8 +23,8 @@ find "$MOD/src" -name '*.java' > "$B/sources.txt"
   -classpath "$AJ" -d "$B/classes" @"$B/sources.txt"
 
 echo "== d8 =="
-"$JAVA/java" -cp "$P/share/java/d8.jar" com.android.tools.r8.D8 \
-  --release --lib "$AJ" --min-api 29 --output "$B/dex" \
+"$JAVA/java" -cp "$D8" com.android.tools.r8.D8 \
+  --release --lib "$AJ" --min-api "$MIN_SDK" --output "$B/dex" \
   $(find "$B/classes" -name '*.class')
 
 echo "== 打包 =="
@@ -36,5 +35,5 @@ cd "$PROJ"
 echo "== 签名 =="
 "$JAVA/java" -jar "$P/share/java/apksigner.jar" sign \
   --ks "$KS" --ks-pass pass:etatata --key-pass pass:etatata \
-  --out "$OUT/MCTGA-cloud-1.0.apk" "$B/unsigned.apk"
-ls -l "$OUT/MCTGA-cloud-1.0.apk"
+  --out "$OUT/MCTGA-cloud-$VER.apk" "$B/unsigned.apk"
+ls -l "$OUT/MCTGA-cloud-$VER.apk"

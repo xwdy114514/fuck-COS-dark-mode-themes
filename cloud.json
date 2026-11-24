@@ -1,6 +1,8 @@
 {
-  "minVersionCode": 200,
-  "blockedVersionCodes": [],
+  "seq": 9,
+  "minVersionCode": 221,
   "notice": "",
-  "downloadUrl": ""
+  "downloadUrl": "",
+  "blockedVersionCodes": [],
+  "sig": "MEQCIEmhyOROlyfqm4/+1AC3kQl48W2K8alxOdRRLXlpSXhTAiA8eZWNMaoK+DkEc509xGiXxEu5up0PM5DMM6ET1nT7eA=="
 }

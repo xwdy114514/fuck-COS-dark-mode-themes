@@ -70,7 +70,7 @@ public final class ShellRunner {
                     try { code=p.exitValue(); exited=true; }
                     catch(RuntimeException e) {
                         String message=String.valueOf(e.getMessage());
-                        if(!message.contains("hasn't exited")&&!message.contains("IllegalArgumentException")) throw e;
+                        if(!(e instanceof IllegalThreadStateException) && !message.contains("hasn't exited") && !message.contains("IllegalArgumentException")) throw e;
                         if(System.currentTimeMillis()>deadline) {
                             safeDestroy(p);
                             a.join(500);b.join(500);

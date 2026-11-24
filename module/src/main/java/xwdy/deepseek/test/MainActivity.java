@@ -58,10 +58,10 @@ public class MainActivity extends Activity {
     private static final int COLOR_BG_BOTTOM = 0xFF15171C;
     private static final int COLOR_CARD = 0xFF1A1C22;
     private static final int COLOR_CARD_ALT = 0xFF202228;
-    private static final int COLOR_LINE = 0x14FFFFFF;
+    private static final int COLOR_LINE = 0x24FFFFFF;
     private static final int COLOR_TEXT = 0xFFF1F0F5;
-    private static final int COLOR_SUB = 0xFF97949F;
-    private static final int COLOR_FAINT = 0xFF6E6B77;
+    private static final int COLOR_SUB = 0xFFB5B9C4;
+    private static final int COLOR_FAINT = 0xFF9DA5B4;
     private static final int COLOR_ACCENT = 0xFF4ADE80;
     private static final int COLOR_ACCENT_DEEP = 0xFF1F6E43;
     private static final int COLOR_WARN = 0xFFFFB86B;
@@ -142,12 +142,13 @@ public class MainActivity extends Activity {
     private boolean storeSuspendedKnown;
     private boolean rootReady;
     private boolean rootChecked;
+    private boolean rootChecking, hookChecking, envChecking;
     private String channelText = "—";
     private EnvCheck.Report env;
     private long envCheckedAt;
     private boolean foreground;
     private boolean blocked;
-    private boolean stopped;
+    private volatile boolean stopped;
     private boolean pendingInstallRisk;
 
     private final Shizuku.OnBinderReceivedListener receivedListener =
@@ -226,6 +227,13 @@ public class MainActivity extends Activity {
         super.onResume();
         if (blocked) return;
         foreground = true;
+        if (pendingCloudDialog != null) {
+            Cloud.Info info = pendingCloudDialog;
+            pendingCloudDialog = null;
+            if (cloudBlocked) showCloudBlocked(info); else showCloudUpdate(info);
+        }
+        if (!rootChecking) rootChecked = false;
+        if (!hookChecking) hookChecked = false;
         refresh();
         refreshGuide();
         // 从文件选择器返回时 onActivityResult 先于 onResume，风险确认对话框会弹不出来；
@@ -337,10 +345,11 @@ public class MainActivity extends Activity {
         scroll.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
                 new int[]{COLOR_BG_TOP, COLOR_BG_BOTTOM}));
         scroll.setFillViewport(true);
+        scroll.setClipToPadding(true);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(18), dp(24), dp(18), dp(28));
+        root.setPadding(dp(18), dp(16), dp(18), dp(24));
         scroll.addView(root);
         setContentView(scroll);
         bindTextOverride();
@@ -360,7 +369,8 @@ public class MainActivity extends Activity {
         head.setGravity(Gravity.CENTER_VERTICAL);
         TextView title = new TextView(this);
         title.setText("MCTGA");
-        title.setTextSize(26);
+        title.setTextSize(25);
+        title.setAccessibilityHeading(true);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setTextColor(COLOR_TEXT);
         title.setLayoutParams(new LinearLayout.LayoutParams(0,
@@ -376,7 +386,7 @@ public class MainActivity extends Activity {
         root.addView(head);
 
         TextView sub = new TextView(this);
-        sub.setText("ColorOS 主题增强 · 深色适配 + 主题常驻");
+        sub.setText("主题常驻 · 深色适配");
         sub.setTextSize(11.5f);
         sub.setTextColor(COLOR_FAINT);
         sub.setPadding(0, dp(6), 0, 0);
@@ -386,18 +396,25 @@ public class MainActivity extends Activity {
         tvSystem.setTextSize(11.5f);
         tvSystem.setLineSpacing(dp(3), 1f);
         tvSystem.setPadding(0, dp(8), 0, 0);
-        addDeviceLine(root);
+
 
         // 主状态卡
         LinearLayout status = card();
         status.setLayoutParams(marginTop(dp(16)));
-        tvStore = row(status, "主题商店");
         tvStoreState = row(status, "商店状态");
-        tvThemes = row(status, "Themes");
-        divider(status);
-        tvRoot = row(status, "Root");
-        tvShizuku = row(status, "Shizuku");
-        tvChannel = row(status, "权限通道");
+        tvThemes = row(status, "锁定目录");
+        final LinearLayout details = new LinearLayout(this);
+        details.setOrientation(LinearLayout.VERTICAL);
+        details.setVisibility(View.GONE);
+        divider(details);
+        tvStore = row(details, "主题商店");
+        tvRoot = row(details, "Root");
+        tvShizuku = row(details, "Shizuku");
+        tvChannel = row(details, "权限通道");
+        divider(details);
+        addDeviceLine(details);
+        addBtn(status, disclosure("设备与权限", details));
+        status.addView(details);
         root.addView(status);
 
         // 主题常驻
@@ -405,12 +422,12 @@ public class MainActivity extends Activity {
         LinearLayout guide = card();
         LinearLayout.LayoutParams guideLp = marginTop(dp(6));
         guide.setLayoutParams(guideLp);
-        guide.setBackground(rounded(COLOR_CARD_ALT, COLOR_LINE, 16));
+        guide.setBackground(rounded(COLOR_CARD_ALT, COLOR_ACCENT_DEEP, 18));
         tvGuide = new TextView(this);
-        tvGuide.setTextSize(12.5f);
+        tvGuide.setTextSize(13f);
         tvGuide.setTextColor(COLOR_TEXT);
         tvGuide.setLineSpacing(dp(4), 1f);
-        tvGuide.setText("引导加载中…");
+        tvGuide.setText("正在检查引导状态…");
         guide.addView(tvGuide);
         btnGuide = button("…", BTN_PRIMARY, new Runnable() {
             @Override
@@ -419,7 +436,7 @@ public class MainActivity extends Activity {
             }
         });
         LinearLayout.LayoutParams gbLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         gbLp.topMargin = dp(10);
         btnGuide.setLayoutParams(gbLp);
         guide.addView(btnGuide);
@@ -430,14 +447,14 @@ public class MainActivity extends Activity {
             public void run() {
                 if (guideStep() == 1) {
                     openFileManager();
-                    toast("在文件管理里点 .theme → 免费试用");
+                    toast("在文件管理中打开 .theme，再到主题商店点「免费试用」。");
                 } else {
                     backToPick();
                 }
             }
         });
         LinearLayout.LayoutParams gaLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(44));
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         gaLp.topMargin = dp(8);
         btnGuideAlt.setLayoutParams(gaLp);
         btnGuideAlt.setVisibility(View.GONE);
@@ -453,19 +470,10 @@ public class MainActivity extends Activity {
         final LinearLayout manual = new LinearLayout(this);
         manual.setOrientation(LinearLayout.VERTICAL);
         manual.setVisibility(View.GONE);
+        addBtn(root, disclosure("手动操作", manual));
         root.addView(manual);
-        final TextView manualToggle = button("手动操作（进阶）", BTN_GHOST, new Runnable() {
-            @Override
-            public void run() {
-                manual.setVisibility(manual.getVisibility() == View.GONE
-                        ? View.VISIBLE : View.GONE);
-            }
-        });
-        addBtn(root, manualToggle);
 
-
-
-        btnInstall = button("选择 .theme 交给主题商店", BTN_PRIMARY, new Runnable() {
+        btnInstall = button("选择主题文件", BTN_PRIMARY, new Runnable() {
             @Override
             public void run() {
                 pickTheme();
@@ -478,15 +486,15 @@ public class MainActivity extends Activity {
         tvRiskNote.setTextColor(COLOR_FAINT);
         tvRiskNote.setLineSpacing(dp(3), 1f);
         tvRiskNote.setPadding(dp(2), dp(8), dp(2), 0);
-        tvRiskNote.setText("不会改 /data/theme：写入 下载/MCTGA（媒体库，无需 Root），"
-                + "再打开主题商店详情页，由商店自己应用。");
+        tvRiskNote.setText("主题文件会复制到 Download/MCTGA，"
+                + "随后打开主题商店。请在商店中完成应用；MCTGA 不写入系统主题目录。");
         manual.addView(tvRiskNote);
 
-        btnStoreImport = button("打开文件管理导入 .theme", BTN_SECONDARY, new Runnable() {
+        btnStoreImport = button("打开文件管理", BTN_SECONDARY, new Runnable() {
             @Override
             public void run() {
                 openFileManager();
-                toast("在文件管理里点 .theme → 免费试用，用它代替补齐");
+                toast("请在文件管理中打开 .theme，再到主题商店应用。此操作不等于补齐资源。");
             }
         });
         addBtn(manual, btnStoreImport);
@@ -497,7 +505,7 @@ public class MainActivity extends Activity {
         tvNoRootHint.setLineSpacing(dp(3), 1f);
         tvNoRootHint.setPadding(dp(2), dp(8), dp(2), 0);
         tvNoRootHint.setVisibility(View.GONE);
-        tvNoRootHint.setText("没有 Root：一键生效已隐藏；「选择 .theme 交给主题商店」仍可用，不需要 Root。");
+        tvNoRootHint.setText("Root 不可用，重启适配应用功能已隐藏。可通过 Shizuku 使用主题常驻功能。");
         manual.addView(tvNoRootHint);
         pair(manual,
                 button("锁定主题", BTN_SECONDARY, new Runnable() {
@@ -506,7 +514,7 @@ public class MainActivity extends Activity {
                         changeTheme(true);
                     }
                 }),
-                button("解锁", BTN_GHOST, new Runnable() {
+                button("解锁主题", BTN_GHOST, new Runnable() {
                     @Override
                     public void run() {
                         changeTheme(false);
@@ -537,7 +545,7 @@ public class MainActivity extends Activity {
                     public void run() {
                         refresh();
                         refreshEnv(true);
-                        toast("已刷新");
+                        toast("正在刷新状态…");
                     }
                 }));
 
@@ -546,7 +554,7 @@ public class MainActivity extends Activity {
         lockHint.setTextColor(COLOR_FAINT);
         lockHint.setLineSpacing(dp(3), 1f);
         lockHint.setPadding(dp(2), dp(10), dp(2), 0);
-        lockHint.setText("锁定后试用到期不会恢复默认主题；换主题前先解锁。");
+        lockHint.setText("锁定用于阻止试用到期后恢复默认，效果取决于系统与商店版本。更换主题前请先解锁。");
         root.addView(lockHint);
 
         // 附加功能
@@ -554,7 +562,7 @@ public class MainActivity extends Activity {
         darkBox.setOrientation(LinearLayout.VERTICAL);
         darkBox.setVisibility(View.GONE);   // 先隐藏；render() 按 Root + LSPosed 是否就绪决定显示
         root.addView(darkBox);
-        section(darkBox, "附加 · 深色适配");
+        section(darkBox, "深色适配");
         envCard = card();
         envCard.setBackground(rounded(COLOR_CARD_ALT, COLOR_LINE, 16));
         tvEnv = new TextView(this);
@@ -578,8 +586,9 @@ public class MainActivity extends Activity {
                 toggleSystemUiRestart();
             }
         });
+        btnRestart.setTextColor(COLOR_WARN);
         addBtn(darkBox, btnRestart);
-        btnFix = button("补齐联系人/短信主题包", BTN_GHOST, new Runnable() {
+        btnFix = button("补齐主题资源", BTN_GHOST, new Runnable() {
             @Override
             public void run() {
                 installTheme();
@@ -587,12 +596,13 @@ public class MainActivity extends Activity {
         });
         addBtn(darkBox, btnFix);
 
-        btnOneKey = button("一键生效（重启适配应用 + SystemUI）", BTN_GHOST, new Runnable() {
+        btnOneKey = button("重启适配应用与 SystemUI", BTN_GHOST, new Runnable() {
             @Override
             public void run() {
                 oneKey();
             }
         });
+        btnOneKey.setTextColor(COLOR_WARN);
         addBtn(darkBox, btnOneKey);
 
         // 高级
@@ -600,13 +610,13 @@ public class MainActivity extends Activity {
         advanced = new LinearLayout(this);
         advanced.setOrientation(LinearLayout.VERTICAL);
         advanced.setVisibility(View.GONE);
-        member(advanced, "切换主题商店包名", new Runnable() {
+        member(advanced, "选择主题商店", new Runnable() {
             @Override
             public void run() {
                 switchStore();
             }
         });
-        member(advanced, "诊断信息（可复制 / 分享）", new Runnable() {
+        member(advanced, "查看诊断信息", new Runnable() {
             @Override
             public void run() {
                 showDiagnostics();
@@ -618,14 +628,8 @@ public class MainActivity extends Activity {
                 showAbout();
             }
         });
+        addBtn(root, disclosure("更多选项", advanced));
         root.addView(advanced);
-        action(root, "展开高级选项", BTN_GHOST, new Runnable() {
-            @Override
-            public void run() {
-                advanced.setVisibility(advanced.getVisibility() == View.GONE
-                        ? View.VISIBLE : View.GONE);
-            }
-        });
 
         // 最近操作
         tvLog = new TextView(this);
@@ -642,29 +646,25 @@ public class MainActivity extends Activity {
         // 帮助
         LinearLayout help = card();
         help.setLayoutParams(marginTop(dp(16)));
-        TextView helpTitle = new TextView(this);
-        helpTitle.setText("使用顺序");
-        helpTitle.setTextSize(13);
-        helpTitle.setTypeface(Typeface.DEFAULT_BOLD);
-        helpTitle.setTextColor(COLOR_TEXT);
-        help.addView(helpTitle);
+        help.setVisibility(View.GONE);
+        addBtn(root, disclosure("使用说明", help));
         TextView helpBody = new TextView(this);
         helpBody.setTextSize(12);
         helpBody.setTextColor(0xFFB6B3BF);
         helpBody.setLineSpacing(dp(4), 1f);
         helpBody.setPadding(0, dp(10), 0, 0);
-        helpBody.setText("1  选 .theme → 自动复制到 下载/MCTGA 并打开商店免费试用页\n"
-                + "2  商店里点「免费试用」，装好回来会自动进第 3 步\n"
-                + "3  「锁定主题」挡住试用到期恢复；换主题先解锁\n"
-                + "4  「一键生效」重启适配应用与 SystemUI\n"
-                + "5  装/更新本 APK 后也要再执行一次一键生效");
+        helpBody.setText("1. 选择主题文件，前往主题商店。\n"
+                + "2. 在商店中点「免费试用」或「应用」，完成后返回。\n"
+                + "3. 确认主题已应用，再锁定；更换前先解锁。\n\n"
+                + "深色适配需 Root、LSPosed 及已应用的主题。未应用主题时保留原生界面。\n"
+                + "更新模块或更换主题后，请结束并重新打开目标应用。重启 SystemUI 可能短暂黑屏，无需反复执行。");
         help.addView(helpBody);
         TextView helpNote = new TextView(this);
         helpNote.setTextSize(11);
         helpNote.setTextColor(COLOR_FAINT);
         helpNote.setPadding(0, dp(10), 0, 0);
-        helpNote.setText("Shizuku 负责 pm 操作；读写商店目录需要能用 Android/data 的身份。"
-                + "不要卸载主题商店。");
+        helpNote.setText("主题常驻需要 Root 或已授权的 Shizuku，且通道能访问商店目录。"
+                + "请保留主题商店，不要卸载。");
         help.addView(helpNote);
         root.addView(help);
 
@@ -688,10 +688,11 @@ public class MainActivity extends Activity {
     private void section(LinearLayout parent, String title) {
         TextView t = new TextView(this);
         t.setText(title);
-        t.setTextSize(11);
-        t.setTextColor(COLOR_FAINT);
-        t.setLetterSpacing(0.08f);
-        t.setPadding(dp(2), dp(26), 0, dp(10));
+        t.setTextSize(15);
+        t.setTypeface(Typeface.DEFAULT_BOLD);
+        t.setTextColor(COLOR_TEXT);
+        t.setAccessibilityHeading(true);
+        t.setPadding(dp(2), dp(22), 0, dp(8));
         parent.addView(t);
     }
 
@@ -705,11 +706,13 @@ public class MainActivity extends Activity {
         l.setTextSize(12.5f);
         l.setTextColor(COLOR_SUB);
         l.setLayoutParams(new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+                ViewGroup.LayoutParams.WRAP_CONTENT, 0.36f));
         TextView v = new TextView(this);
         v.setTextSize(12.5f);
         v.setTextColor(COLOR_TEXT);
         v.setGravity(Gravity.END);
+        v.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.64f));
+        v.setPadding(dp(10), 0, 0, 0);
         r.addView(l);
         r.addView(v);
         parent.addView(r);
@@ -733,11 +736,33 @@ public class MainActivity extends Activity {
 
     private void addBtn(LinearLayout parent, View v) {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, v.getLayoutParams() != null
-                ? v.getLayoutParams().height : dp(46));
-        lp.topMargin = dp(10);
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(8);
         v.setLayoutParams(lp);
         parent.addView(v);
+    }
+
+    /** Presentation-only disclosure; the controlled actions and permission gates stay unchanged. */
+    private TextView disclosure(final String label, final View content) {
+        final TextView[] control = new TextView[1];
+        final Runnable update = new Runnable() {
+            @Override public void run() {
+                boolean expanded = content.getVisibility() == View.VISIBLE;
+                control[0].setText(label + (expanded ? "  ▴" : "  ▾"));
+                control[0].setStateDescription(expanded ? "已展开" : "已收起");
+                control[0].setContentDescription(label + (expanded ? "，点击收起" : "，点击展开"));
+            }
+        };
+        control[0] = button(label, BTN_GHOST, new Runnable() {
+            @Override public void run() {
+                content.setVisibility(content.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+                update.run();
+            }
+        });
+        control[0].setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+        control[0].setTextColor(COLOR_SUB);
+        update.run();
+        return control[0];
     }
 
     private void member(LinearLayout parent, String text, Runnable onClick) {
@@ -745,13 +770,20 @@ public class MainActivity extends Activity {
     }
 
     private void pair(LinearLayout parent, View left, View right) {
+        // Two columns only when both captions have enough room, including enlarged system fonts.
+        if (getResources().getConfiguration().screenWidthDp < 380
+                || getResources().getConfiguration().fontScale > 1.15f) {
+            addBtn(parent, left);
+            addBtn(parent, right);
+            return;
+        }
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setLayoutParams(marginTop(dp(12)));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(48), 1f);
+        row.setLayoutParams(marginTop(dp(8)));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         left.setLayoutParams(lp);
-        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(0, dp(48), 1f);
-        rp.leftMargin = dp(12);
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        rp.leftMargin = dp(8);
         right.setLayoutParams(rp);
         row.addView(left);
         row.addView(right);
@@ -767,7 +799,16 @@ public class MainActivity extends Activity {
         b.setClickable(true);
         b.setFocusable(true);
         b.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(style == BTN_GHOST ? 46 : 50)));
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        b.setMinHeight(dp(style == BTN_PRIMARY ? 52 : 48));
+        b.setPadding(dp(14), dp(12), dp(14), dp(12));
+        b.setLineSpacing(dp(2), 1f);
+        b.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+            @Override public void onInitializeAccessibilityNodeInfo(View host, android.view.accessibility.AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(host, info);
+                info.setClassName(android.widget.Button.class.getName());
+            }
+        });
 
         Drawable bg;
         int ripple;
@@ -819,7 +860,18 @@ public class MainActivity extends Activity {
     }
 
     private void post(Runnable r) {
-        ui.post(r);
+        if (stopped) return;
+        ui.post(new Runnable() {
+            @Override public void run() { if (!stopped && !isDestroyed()) r.run(); }
+        });
+    }
+
+    private void submit(Runnable task) {
+        if (stopped) return;
+        try { exec.execute(task); }
+        catch (java.util.concurrent.RejectedExecutionException e) {
+            if (!stopped) android.util.Log.w("MCTGA", "task rejected", e);
+        }
     }
 
     private boolean canShowDialog() {
@@ -904,7 +956,7 @@ public class MainActivity extends Activity {
         }
 
         if (!storeSuspendedKnown) paint(tvStoreState, "未知", COLOR_SUB);
-        else paint(tvStoreState, storeSuspended ? "已挂起" : "正常", storeSuspended ? COLOR_WARN : COLOR_ACCENT);
+        else paint(tvStoreState, storeSuspended ? "已冻结" : "正常", storeSuspended ? COLOR_WARN : COLOR_ACCENT);
 
         if (themesState.startsWith("已锁定")) paint(tvThemes, themesState, COLOR_ACCENT);
         else if (themesState.startsWith("正常目录")) paint(tvThemes, themesState, COLOR_TEXT);
@@ -912,7 +964,7 @@ public class MainActivity extends Activity {
         else paint(tvThemes, themesState, COLOR_SUB);
 
         if (!rootChecked) paint(tvRoot, "检测中…", COLOR_SUB);
-        else paint(tvRoot, rootReady ? "可用" : "不可用（su 被拒绝或隐藏）",
+        else paint(tvRoot, rootReady ? "可用" : "暂不可用（授权未通过或通道不可见）",
                 rootReady ? COLOR_ACCENT : COLOR_WARN);
 
         String sh = ShizukuBridge.state();
@@ -945,9 +997,9 @@ public class MainActivity extends Activity {
     private void renderEnv() {
         if (tvEnv == null) return;
         StringBuilder sb = new StringBuilder();
-        sb.append("开关：").append(darkOn() ? "已开启" : "已关闭");
+        sb.append("适配开关：").append(darkOn() ? "已开启" : "已关闭");
         if (env == null) {
-            sb.append('\n').append("环境：检测中…");
+            sb.append('\n').append("环境检测中…");
         } else {
             sb.append('\n').append("环境：").append(env.verdict);
             if (env.level == EnvCheck.LEVEL_USABLE && !env.samplePkg.isEmpty()) {
@@ -955,11 +1007,11 @@ public class MainActivity extends Activity {
                         .append(env.sampleNight).append(" 项");
             }
         }
-        if (hookChecked && hookUnknown) sb.append('\n').append("无法确认 LSPosed 状态（没有 Root / Shizuku）");
-        else if (hookChecked && !hookReady) sb.append('\n').append("LSPosed 未运行：Hook 不生效，深色适配与补齐都无效");
-        if (!darkOn()) sb.append('\n').append("已关闭：不再注入主题资源与插画");
+        if (hookChecked && hookUnknown) sb.append('\n').append("LSPosed 状态未确认，请检查 Root 授权。");
+        else if (hookChecked && !hookReady) sb.append('\n').append("未检测到 LSPosed 运行，暂不能注入主题资源。");
+        if (!darkOn()) sb.append('\n').append("适配已关闭。结束并重新打开目标应用后，停止注入主题资源。");
         if (!OsVersion.colorOs()) {
-            sb.append('\n').append("本软件仅支持 ColorOS 设备，当前不是 ColorOS，全部功能已停用");
+            sb.append('\n').append("当前系统不符合 ColorOS / realme UI 要求，功能已停用。");
         } else if (!OsVersion.supported()) {
             sb.append('\n').append("深色适配已停用（").append(OsVersion.unsupportedHint()).append("）");
         }
@@ -993,31 +1045,23 @@ public class MainActivity extends Activity {
 
 
     private void refreshHook() {
-        if (hookChecked) return;
-        if (!rootReady && !ShizukuBridge.granted()) {
+        if (stopped || hookChecked || hookChecking) return;
+        if (!rootReady) {
             hookChecked = true;
             hookUnknown = true;
             render();
             return;
         }
-        exec.execute(new Runnable() {
+        hookChecking = true;
+        submit(new Runnable() {
             @Override
             public void run() {
                 boolean ok = false;
                 boolean unknown = false;
                 try {
-                    // 有 Root 就先走 Root：shell 身份（uid 2000 / u:r:ksu:s0）看不到 /data/adb，
-                    // 用它探测会把「LSPosed 正在运行」误判成「没装 / 没开」。
-                    boolean viaShizuku = useShizukuChannel();
-                    ShellRunner.Result r = sh(
-                            "ls -d /data/adb/lspd 2>/dev/null; "
-                                    + "ls -d /data/adb/modules/zygisk_lsposed 2>/dev/null; "
-                                    + "pidof lspd 2>/dev/null; true",
-                            10000, viaShizuku);
-                    String out = r.out == null ? "" : r.out.trim();
-                    ok = out.length() > 0;
-                    // Root 通道下为空就是真的没运行；只有走 shell 身份或命令本身失败才叫“无法确认”
-                    unknown = !ok && (viaShizuku || !r.ok());
+                    ShellRunner.Result r = RootShell.shell("id -u; " + EnvCheck.lspdProbe(), 10000);
+                    ok = r.ok() && EnvCheck.lspdRunning(r.out);
+                    unknown = !r.ok();
                 } catch (Throwable t) {
                     unknown = true;
                 }
@@ -1026,6 +1070,7 @@ public class MainActivity extends Activity {
                 post(new Runnable() {
                     @Override
                     public void run() {
+                        hookChecking = false;
                         hookChecked = true;
                         hookReady = ready;
                         hookUnknown = unk;
@@ -1037,18 +1082,21 @@ public class MainActivity extends Activity {
     }
 
     private void refreshRoot() {
+        if (stopped || rootChecking) return;
         if (rootChecked) {
             refreshStore();
             refreshEnv(false);
             return;
         }
-        exec.execute(new Runnable() {
+        rootChecking = true;
+        submit(new Runnable() {
             @Override
             public void run() {
                 final boolean ok = RootShell.available();
                 post(new Runnable() {
                     @Override
                     public void run() {
+                        rootChecking = false;
                         rootChecked = true;
                         rootReady = ok;
                         // 首次探测可能跑在 Root 就绪之前（那时只能用 shell 身份，看不到 /data/adb），Root 一到就重测
@@ -1115,30 +1163,30 @@ public class MainActivity extends Activity {
 
     private String guideTitle(int step) {
         switch (step) {
-            case 1: return "第 1 步 / 共 3 步：选 .theme，直接打开免费试用页";
-            case 2: return "第 2 步 / 共 3 步：在主题商店点「免费试用」";
-            case 3: return "第 3 步 / 共 3 步：锁定主题，挡住到期恢复";
-            default: return "3 步都完成了 ✓";
+            case 1: return "第 1 步 / 共 3 步：选择主题文件";
+            case 2: return "第 2 步 / 共 3 步：在商店应用主题";
+            case 3: return "第 3 步 / 共 3 步：锁定主题";
+            default: return "主题引导已完成";
         }
     }
 
     private String guideBody(int step) {
         switch (step) {
             case 1:
-                return "下面会列出根目录和夸克两个下载目录里名字带 ColorOS 的 .theme / .exe，点一个就直接打开免费试用页；"
-                        + "没有想要的就在文件管理里自己选（必须是 ColorOS 主题）。\n"
-                        + "MCTGA 会把它复制到 下载/MCTGA，再拉起主题商店——不碰 /data/theme。";
+                return "列表会显示存储根目录及夸克下载目录中，名称含 ColorOS 的 .theme、.exe 或 .7z 文件。\n"
+                        + "找不到所需文件时，可自行选择 .theme，或打开文件管理。\n"
+                        + "选中文件后会准备副本并打开主题商店，还需在商店中完成应用。";
             case 2:
-                return "已交给商店：" + pickedName() + "\n"
-                        + "在商店里点「免费试用 / 应用」，等它装完。\n"
-                        + "装完回到这里会自动跳到第 3 步；没跳就点下面的按钮。\n"
-                        + "想换一个就点「退回上一步」。";
+                return "已选文件：" + pickedName() + "\n"
+                        + "请在主题商店中点「免费试用」或「应用」，等待完成。\n"
+                        + "返回后若未自动进入下一步，请确认主题已应用，再点下方按钮。\n"
+                        + "需要重选时，点「重新选择」。";
             case 3:
-                return "试用到期后商店可能把主题恢复成默认。点「锁定主题」就不会了；"
-                        + "换主题前先「解锁」。";
+                return "试用到期后，商店可能恢复默认主题。锁定会限制商店运行和缓存写入，以阻止恢复；效果因系统和商店版本而异。\n"
+                        + "更换主题前请先解锁。";
             default:
-                return "主题已应用、已锁定。换主题时先点「解锁」，再从第 1 步开始。\n"
-                        + "（联系人 / 短信主题包补丁在「附加 · 深色适配」里）";
+                return "本次应用确认与锁定步骤已完成，不代表持续检测到主题仍在生效。\n"
+                        + "如需更换，点「更换主题」并按提示操作；资源缺失可使用「深色适配」中的补齐功能。";
         }
     }
 
@@ -1171,8 +1219,8 @@ public class MainActivity extends Activity {
     /** 第 2 步人工确认：/data/theme 的 mtime 没刷新时也能继续，避免卡在这一步。 */
     private void confirmApplied() {
         prefs.edit().putLong("ack_at", System.currentTimeMillis() / 1000L).apply();
-        setLog("最近操作：已确认在商店点过免费试用");
-        toast("已确认，进入第 3 步");
+        setLog("最近操作：已记录用户的应用确认（非自动验证）");
+        toast("已记录你的确认，继续锁定步骤。");
         refreshGuide();
     }
 
@@ -1186,29 +1234,29 @@ public class MainActivity extends Activity {
         scannedSizes.clear();
         lastScanAt = 0;
         setLog("最近操作：已退回上一步（重新选 .theme）");
-        toast("已退回第 1 步，重新选一个 .theme");
+        toast("已返回选择步骤，请重新选择主题文件。");
         refreshGuide();
     }
     /** 全部完成后再换主题：先让用户去商店恢复默认主题，再把这套状态清掉重走一遍。 */
     private void startChangeTheme() {
         if (!canShowDialog()) {
-            toast("先关掉其它浮窗再点");
+            toast("请回到 MCTGA 前台后重试。");
             return;
         }
         new AlertDialog.Builder(this)
-                .setTitle("换主题前先恢复默认主题")
-                .setMessage("系统对第三方主题的试用有记录，直接在旧主题上再套一个新的，"
-                        + "商店那边经常装不上或者读不出来。\n\n"
-                        + "① 点「打开默认主题」，在「我的资源」里点「默认主题」→「恢复默认主题」\n"
-                        + "② 回到 MCTGA 点「已恢复，重新选主题」\n\n"
-                        + "打开商店前会先自动解锁（解除挂起）。")
-                .setPositiveButton("打开默认主题", new DialogInterface.OnClickListener() {
+                .setTitle("更换主题")
+                .setMessage("建议先恢复默认主题，再应用新主题，"
+                        + "避免旧主题状态影响导入。\n\n"
+                        + "1. 打开「我的资源」，选择「默认主题」并恢复。\n"
+                        + "2. 返回 MCTGA，确认恢复完成后重新选择。\n\n"
+                        + "打开商店前会尝试解锁并解冻，请留意操作结果。")
+                .setPositiveButton("前往我的资源", new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface d, int w) {
                         unlockAndOpenStore();
                     }
                 })
-                .setNeutralButton("已恢复，重新选主题", new DialogInterface.OnClickListener() {
+                .setNeutralButton("已恢复，重新选择", new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface d, int w) {
                         resetForNewTheme();
@@ -1229,7 +1277,7 @@ public class MainActivity extends Activity {
         scannedSizes.clear();
         lastScanAt = 0;
         setLog("最近操作：开始换主题，请重新选 .theme");
-        toast("回到第 1 步，选一个新主题");
+        toast("已返回第 1 步，请选择新主题。");
         refreshGuide();
     }
 
@@ -1241,14 +1289,14 @@ public class MainActivity extends Activity {
         final boolean viaShizuku = !useRoot && ShizukuBridge.granted();
         setLog("最近操作：开始解冻商店（root=" + useRoot + "）");
         toast("正在解冻主题商店…");
-        exec.execute(new Runnable() {
+        submit(new Runnable() {
             @Override
             public void run() {
                 String msg;
                 try {
                     ShellRunner.Result r = sh(ThemeEngine.unlock(pkg, useRoot), 20000, viaShizuku);
-                    msg = ThemeEngine.operationSucceeded(r.out, false)
-                            ? "已解冻并清掉锁定" : "解冻未确认（检查 Root / Shizuku）";
+                    msg = r.ok() && ThemeEngine.operationSucceeded(r.out, false)
+                            ? "已解锁主题并解冻商店" : "解锁结果未确认，请检查权限后刷新状态。";
                 } catch (Throwable t) {
                     msg = "解冻失败：" + t;
                 }
@@ -1300,14 +1348,14 @@ public class MainActivity extends Activity {
         if (tvGuide == null || btnGuide == null) return;
         // 没通道什么也做不了：扫描、核对、交给商店都要 Shizuku 或 Root
         if (!channelReady()) {
-            tvGuide.setText("先激活 Shizuku（有 Root 也行）\n"
-                    + "扫描 下载 里的 .theme、核对是不是 ColorOS 主题、把文件交给主题商店，"
-                    + "这三件事都要特权通道。\n\n"
-                    + "① 打开 Shizuku，确认已启动\n"
-                    + "② 回到 MCTGA，点下面的按钮授权\n"
-                    + "③ 授权后引导会自动往下走");
+            tvGuide.setText("先连接并授权 Shizuku，或授予 Root 权限\n"
+                    + "自动扫描与引导需要可用的特权通道，"
+                    + "仅打开 Shizuku 应用并不等于服务已启动。\n\n"
+                    + "1. 在 Shizuku 中启动服务。\n"
+                    + "2. 返回 MCTGA，点击下方按钮授权。\n"
+                    + "3. 授权成功后继续主题引导。");
             tvGuide.setTextColor(COLOR_WARN);
-            btnGuide.setText("连接 / 授权 Shizuku");
+            btnGuide.setText("连接并授权 Shizuku");
             btnGuide.setEnabled(true);
             btnGuide.setAlpha(1f);
             if (btnGuideAlt != null) btnGuideAlt.setVisibility(View.GONE);
@@ -1318,13 +1366,13 @@ public class MainActivity extends Activity {
         boolean storeSusp = storeSuspendedKnown && storeSuspended;
         boolean themesEmpty = themesState.startsWith("已锁定");
         if (guideStep() == 1 && (storeSusp || themesEmpty)) {
-            String why = storeSusp && themesEmpty ? "主题商店被挂起，且 Themes 是空占位文件"
-                    : storeSusp ? "主题商店被挂起" : "Themes 是空占位文件";
-            tvGuide.setText("第 1 步 · 先解除商店锁定\n" + why
-                    + "，会导致商店打不开或换不了主题。\n\n"
-                    + "点下面的按钮：解冻商店 + 删除空文件，完成后自动回到这一步。");
+            String why = storeSusp && themesEmpty ? "主题商店已冻结，主题目录处于锁定状态"
+                    : storeSusp ? "主题商店已冻结" : "主题目录处于锁定状态";
+            tvGuide.setText("选择主题前，先解除锁定\n" + why
+                    + "，可能无法打开商店或更换主题。\n\n"
+                    + "点击下方按钮尝试解锁并解冻。确认成功后继续选择主题。");
             tvGuide.setTextColor(COLOR_WARN);
-            btnGuide.setText("解冻并清理 Themes");
+            btnGuide.setText("解锁并解冻商店");
             btnGuide.setEnabled(true);
             btnGuide.setAlpha(1f);
             if (btnGuideAlt != null) btnGuideAlt.setVisibility(View.GONE);
@@ -1334,7 +1382,7 @@ public class MainActivity extends Activity {
         tvGuide.setText(guideTitle(step) + "\n" + guideBody(step));
         tvGuide.setTextColor(step >= 4 ? COLOR_ACCENT : COLOR_TEXT);
         if (step >= 4) {
-            btnGuide.setText("换主题（重新走一遍）");
+            btnGuide.setText("更换主题");
             btnGuide.setEnabled(true);
             btnGuide.setAlpha(1f);
         } else {
@@ -1345,7 +1393,7 @@ public class MainActivity extends Activity {
         if (btnGuideAlt != null) {
             if (step == 1 || step == 2) {
                 btnGuideAlt.setVisibility(View.VISIBLE);
-                btnGuideAlt.setText(step == 1 ? "自己选文件 / 文件管理" : "退回上一步");
+                btnGuideAlt.setText(step == 1 ? "打开文件管理" : "重新选择");
             } else {
                 btnGuideAlt.setVisibility(View.GONE);
             }
@@ -1360,8 +1408,8 @@ public class MainActivity extends Activity {
 
     private String guideButtonText(int step) {
         switch (step) {
-            case 1: return "选择 .theme → 打开免费试用页";
-            case 2: return "我已经在商店点过「免费试用」";
+            case 1: return "选择主题文件";
+            case 2: return "我已在商店完成应用";
             default: return "锁定主题";
         }
     }
@@ -1373,7 +1421,7 @@ public class MainActivity extends Activity {
         scanning = true;
         lastScanAt = System.currentTimeMillis();
         final boolean viaShizuku = useShizukuChannel();
-        exec.execute(new Runnable() {
+        submit(new Runnable() {
             @Override
             public void run() {
                 // 根目录按时间倒序；夸克目录递归；每行「大小<TAB>路径」
@@ -1433,11 +1481,11 @@ public class MainActivity extends Activity {
         if (!show) return;
         TextView head = new TextView(this);
         if (scannedThemes.isEmpty()) {
-            head.setText("没扫到名字带 ColorOS 的 .theme / .exe（根目录 + 夸克两个下载目录）；"
-                    + "用「自己选文件 / 文件管理」挑一个。");
+            head.setText("未找到名称含 ColorOS 的候选文件（扫描范围：根目录及夸克下载目录）。\n"
+                    + "可点击「选择主题文件」，或自行打开文件管理。");
         } else {
-            head.setText("扫到 " + scannedThemes.size()
-                    + " 个 ColorOS 主题（根目录 + 夸克目录），点一个直接试用：");
+            head.setText("找到 " + scannedThemes.size()
+                    + " 个候选主题文件，选择后前往商店应用：");
         }
         head.setTextSize(11.5f);
         head.setTextColor(COLOR_SUB);
@@ -1448,7 +1496,7 @@ public class MainActivity extends Activity {
             String label = nm;
             Long sz = scannedSizes.get(path);
             if (isArchiveFile(nm)) {
-                label = nm + "  ·  压缩包" + (sz == null ? "" : " " + humanSize(sz)) + "，点它自动解压";
+                label = nm + "  ·  压缩包" + (sz == null ? "" : " " + humanSize(sz)) + "（选择后解压）";
             }
             TextView b = button(label, BTN_SECONDARY, new Runnable() {
                 @Override
@@ -1457,10 +1505,11 @@ public class MainActivity extends Activity {
                 }
             });
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(40));
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             lp.topMargin = dp(6);
             b.setLayoutParams(lp);
-            b.setTextSize(11.5f);
+            b.setTextSize(12.5f);
+            b.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
             guideList.addView(b);
         }
     }
@@ -1472,14 +1521,14 @@ public class MainActivity extends Activity {
             return;
         }
         if (!isColorOsTheme(src)) {
-            toast("这不是 ColorOS 主题，装不了");
+            toast("文件名未包含 ColorOS，暂不接受。请确认这是兼容主题，而不是只修改扩展名。");
             return;
         }
         final String name = baseName(src);
         final boolean archive = isArchiveFile(name);
         final boolean viaShizuku = useShizukuChannel();
         toast(archive ? "正在解压 " + name + " …" : "正在准备 " + name + " …");
-        exec.execute(new Runnable() {
+        submit(new Runnable() {
             @Override
             public void run() {
                 String dest = null;
@@ -1492,7 +1541,7 @@ public class MainActivity extends Activity {
                     java.io.File theme;
                     if (archive) {
                         theme = extractThemeFromArchive(pkg);
-                        if (theme == null) throw new java.io.IOException("解压失败，包里没有 .theme");
+                        if (theme == null) throw new java.io.IOException("未能从压缩包中提取 .theme 文件");
                         if (lastEntryName != null && lastEntryName.toLowerCase().endsWith(".theme")) {
                             finalName = lastEntryName;
                         } else {
@@ -1502,7 +1551,7 @@ public class MainActivity extends Activity {
                         theme = pkg;
                     }
                     if (!looksLikeZip(theme)) {
-                        throw new java.io.IOException("不是主题包（.theme 应该是 zip）");
+                        throw new java.io.IOException("文件格式不符合 .theme 的 ZIP 特征，请检查文件是否完整");
                     }
                     String safe = safeThemeName(finalName);
                     String dir = android.os.Environment
@@ -1559,7 +1608,7 @@ public class MainActivity extends Activity {
 
     /** 单引号转义，拼 shell 路径用。 */
     private String shq(String s) {
-        return "'" + (s == null ? "" : s.replace("'", "'\\''")) + "'";
+        return ThemeEngine.quote(s == null ? "" : s);
     }
 
     /** .exe / .7z 当压缩包处理（夸克网盘下来的主题多为 7-Zip SFX，扩展名是 exe）。 */
@@ -1784,7 +1833,7 @@ public class MainActivity extends Activity {
             uriCheck = "echo URIHAS:$( [ -f " + shq(path) + " ] && echo 1 || echo 0 )\n";
         }
         final String extra = uriCheck;
-        exec.execute(new Runnable() {
+        submit(new Runnable() {
             @Override
             public void run() {
                 ShellRunner.Result r = sh("echo APPLIED:$( [ -f /data/theme/com.android.settings ] && echo 1 || echo 0 )\n"
@@ -1852,7 +1901,7 @@ public class MainActivity extends Activity {
         }
         final boolean viaShizuku = useShizukuChannel();
         querying.set(true);
-        exec.execute(new Runnable() {
+        submit(new Runnable() {
             @Override
             public void run() {
                 ShellRunner.Result r = sh(ThemeEngine.inspect(pkg), 15000, viaShizuku);
@@ -1882,10 +1931,12 @@ public class MainActivity extends Activity {
     }
 
     private void refreshEnv(boolean force) {
+        if (stopped || envChecking) return;
         long now = System.currentTimeMillis();
         if (!force && env != null && now - envCheckedAt < 30000) return;
         envCheckedAt = now;
-        exec.execute(new Runnable() {
+        envChecking = true;
+        submit(new Runnable() {
             @Override
             public void run() {
                 boolean darkNow = (getResources().getConfiguration().uiMode
@@ -1896,6 +1947,7 @@ public class MainActivity extends Activity {
                     @Override
                     public void run() {
                         if (stopped) return;
+                        envChecking = false;
                         env = report;
                         renderEnv();
                     }
@@ -1905,7 +1957,7 @@ public class MainActivity extends Activity {
     }
 
     private String describe(String state, boolean suspended, boolean timeout) {
-        String suffix = suspended ? " · 商店已挂起" : "";
+        String suffix = suspended ? " · 商店已冻结" : "";
         if (timeout) return "查询超时";
         if ("EMPTY".equals(state)) return "已锁定（空文件）" + suffix;
         if ("DIRECTORY".equals(state)) return "正常目录" + suffix;
@@ -1940,17 +1992,16 @@ public class MainActivity extends Activity {
         final boolean useRoot = rootReady;
         final boolean viaShizuku = !useRoot && ShizukuBridge.granted();
         toast("正在解冻主题商店…");
-        exec.execute(new Runnable() {
+        submit(new Runnable() {
             @Override
             public void run() {
                 String msg;
                 try {
                     ShellRunner.Result r = sh(ThemeEngine.unlock(pkg, useRoot), 20000, viaShizuku);
-                    msg = ThemeEngine.operationSucceeded(r.out, false)
-                            ? "已解冻并删除空文件" : "处理未确认（检查 Root / Shizuku）";
+                    msg = r.ok() && ThemeEngine.operationSucceeded(r.out, false)
+                            ? "已解除锁定并解冻商店" : "处理未确认（检查 Root / Shizuku）";
                 } catch (Throwable t) {
                     prefs.edit().putString("last_error", "handleLockedState: " + t).apply();
-                    msg = "处理失败：" + t;
                     msg = "处理失败：" + t;
                 }
                 final String m = msg;
@@ -1975,10 +2026,10 @@ public class MainActivity extends Activity {
             return;
         }
         new AlertDialog.Builder(this)
-                .setTitle("需要特权通道")
+                .setTitle("需要操作权限")
                 .setMessage("Shizuku 未授权，Root 也不可用。\n\n"
-                        + "· pm 操作（解冻/冻结）：Shizuku 或 Shizuku 授权即可\n"
-                        + "· 读写商店目录、写 /data/theme：需要 Shizuku（无线调试）或 Root")
+                        + "· 冻结或解冻商店：需要 Root 或 Shizuku 授权。\n"
+                        + "· 锁定或解锁主题：还需通道能访问商店目录。MCTGA 不写入 /data/theme。")
                 .setPositiveButton("去授权", new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface d, int w) {
@@ -2098,12 +2149,12 @@ public class MainActivity extends Activity {
             return;
         }
         if (!changing.compareAndSet(false, true)) {
-            toast("已有操作在执行");
+            toast("已有操作正在执行，请稍候。");
             return;
         }
         toast(lock ? "正在锁定…" : "正在解锁…");
         final boolean viaShizuku = useShizukuChannel();
-        exec.execute(new Runnable() {
+        submit(new Runnable() {
             @Override
             public void run() {
                 ShellRunner.Result result;
@@ -2156,20 +2207,20 @@ public class MainActivity extends Activity {
 
     private String hintFor(ShellRunner.Result r, boolean lock) {
         String all = r.out + "\n" + r.err;
-        if (r.timedOut) return "操作超时，结果未知；建议重启 Shizuku 后刷新状态确认。";
-        if (all.contains("SHELL_IDENTITY_REQUIRED")) return "需要 shell（2000）或 root（0）身份。";
-        if (all.contains("OWNER_PROFILE_REQUIRED")) return "仅支持主用户，分身/访客无法操作。";
+        if (r.timedOut) return "操作超时，结果未确认。请先刷新状态，不要立即重复执行；通道异常时再检查 Root 或 Shizuku。";
+        if (all.contains("SHELL_IDENTITY_REQUIRED")) return "当前权限不足，请检查 Root 或 Shizuku 授权。技术信息：需要 UID 0 或 2000。";
+        if (all.contains("OWNER_PROFILE_REQUIRED")) return "仅支持手机主用户，请勿在应用分身、系统分身或访客中使用。";
         if (all.contains("DIRECTORY_ACCESS") || all.contains("Permission denied")) {
             return "读不到商店目录：需要能用 Android/data 的身份（无线调试/ADB 启动的 Shizuku，或 Root）。";
         }
         if (all.contains("PATH_MISMATCH") || all.contains("SYMLINK") || all.contains("CONFLICT")) {
             return "目录状态异常，已停止操作以保留数据。";
         }
-        if (all.contains("SUSPEN")) return "挂起状态未确认，核心结果看下面输出。";
+        if (all.contains("SUSPEN")) return "商店冻结状态未确认，请刷新后核对；详细结果见下方输出。";
         if (all.contains("PLACEHOLDER_CREATE")) return "占位文件创建失败：商店目录不可写，或已存在同名文件。";
         if (all.contains("EXISTING_FILE")) return "Themes 已是非空文件，已停止以保留原数据。";
         if (all.contains("BACKUP_FAILED") || all.contains("RESTORE_FAILED")) {
-            return "移动 / 还原 Themes 目录失败，未做替换。";
+            return "移动或还原主题目录失败，操作可能只完成了一部分。请先刷新状态再处理。";
         }
         return lock ? "锁定没有完成。" : "解锁没有完成。";
     }
@@ -2181,11 +2232,11 @@ public class MainActivity extends Activity {
         }
         new AlertDialog.Builder(this)
                 .setTitle("当前身份读不到 Android/data")
-                .setMessage("Shizuku 提供的 shell 只能执行 pm 等 Binder 操作，读不到 "
-                        + "/storage/emulated/0/Android/data，所以空文件替换式锁定/解锁用不了。\n\n"
-                        + "· 解冻 / 冻结：现在就能用\n"
-                        + "· 锁定 / 解锁：需要无线调试或 ADB 启动的 Shizuku，或 Root\n\n"
-                        + "需要别的办法可以让我把文件操作搬进商店进程里做。")
+                .setMessage("当前通道无法访问 "
+                        + "Android/data，暂时无法执行主题目录的锁定或解锁。\n\n"
+                        + "· 冻结或解冻商店：可尝试，仍以执行结果为准。\n"
+                        + "· 锁定或解锁主题：需可访问该目录的 Root 或 Shizuku 通道。\n\n"
+                        + "请检查服务启动方式与授权，再返回刷新状态。")
                 .setPositiveButton("知道了", null)
                 .show();
     }
@@ -2202,11 +2253,11 @@ public class MainActivity extends Activity {
         }
         final boolean viaShizuku = useShizukuChannel();
         if (!changing.compareAndSet(false, true)) {
-            toast("已有操作在执行");
+            toast("已有操作正在执行，请稍候。");
             return;
         }
         toast(unsuspend ? "正在解冻商店…" : "正在冻结商店…");
-        exec.execute(new Runnable() {
+        submit(new Runnable() {
             @Override
             public void run() {
                 final ShellRunner.Result r = sh(
@@ -2299,8 +2350,8 @@ public class MainActivity extends Activity {
         }
         String name = queryName(uri);
         if (!isColorOsTheme(name)) {
-            toast("这不是 ColorOS 主题，MCTGA 装不了");
-            setLog("最近操作：已拒绝 " + name + "\n这不是 ColorOS 主题，MCTGA 装不了");
+            toast("文件名未包含 ColorOS，暂不接受。名称校验不代表已验证主题兼容性。");
+            setLog("最近操作：已拒绝 " + name + "\n文件名未包含 ColorOS，未继续导入。");
             refreshGuide();
             return;
         }
@@ -2326,10 +2377,10 @@ public class MainActivity extends Activity {
         }
         new AlertDialog.Builder(this)
                 .setTitle("补齐主题资源")
-                .setMessage("ColorOS 的主题引擎不会给联系人 / 短信解压主题包，深色下这两个界面会发亮。\n\n"
-                        + "这里会从你选的 .theme 里取出这两个应用的主题资源，交给模块在它们进程里读取，"
-                        + "让深色模式也能套上主题。\n\n"
-                        + "不会修改系统目录 /data/theme，也不会改动 .theme 原文件。")
+                .setMessage("部分系统不会完整加载主题中的应用资源，联系人、短信等界面可能缺少适配。\n\n"
+                        + "此操作从已选 .theme 提取可用资源并准备模块缓存，"
+                        + "供适配应用读取。补齐不等于应用主题，请先在商店完成应用。\n\n"
+                        + "不会写入 /data/theme 或修改主题原文件。无有效主题时不注入背景；完成后需重新打开目标应用。")
                 .setPositiveButton("开始补齐", new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface d, int w) {
@@ -2345,16 +2396,14 @@ public class MainActivity extends Activity {
         final String name = queryName(uri);
         final long size = querySize(uri);
         toast("正在交给主题商店…");
-        exec.execute(new Runnable() {
+        submit(new Runnable() {
             @Override
             public void run() {
                 String dest = null;
                 String err = null;
                 java.io.InputStream in = null;
                 try {
-                    String safe = name.replaceAll("[/\\\\:*?\"<>|]", "_").trim();
-                    if (safe.isEmpty()) safe = "theme.theme";
-                    if (!safe.toLowerCase().endsWith(".theme")) safe = safe + ".theme";
+                    String safe = safeThemeName(name);
                     String dir = android.os.Environment
                             .getExternalStoragePublicDirectory(
                                     android.os.Environment.DIRECTORY_DOWNLOADS)
@@ -2364,7 +2413,7 @@ public class MainActivity extends Activity {
                     dest = writeToDownloads(in, size, safe, dir);
                     if (rootReady && dest != null) {
                         // 有 root 时补一次 chmod，保证商店按路径一定能读到
-                        RootShell.shell("chmod 0644 '" + dest + "'", 10000);
+                        RootShell.shell("chmod 0644 " + shq(dest), 10000);
                     }
                 } catch (Throwable t) {
                     err = String.valueOf(t);
@@ -2513,7 +2562,7 @@ public class MainActivity extends Activity {
             return;
         }
         final boolean viaShizuku = useShizukuChannel();
-        exec.execute(new Runnable() {
+        submit(new Runnable() {
             @Override
             public void run() {
                 // 关键：商店会把上一次的本地主题记住，不换进程就一直打开旧的那份——
@@ -2553,7 +2602,7 @@ public class MainActivity extends Activity {
                         | Intent.FLAG_GRANT_READ_URI_PERMISSION
                         | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
                 startActivity(i);
-                toast("已打开主题详情，加载几秒后点「免费试用」");
+                toast("已请求打开主题详情。加载完成后，请在商店中点「免费试用」或「应用」。");
                 return true;
             } catch (Throwable t) {
                 android.util.Log.w("MCTGA", "preview fail " + action + " -> " + t);
@@ -2564,10 +2613,8 @@ public class MainActivity extends Activity {
 
     private void doInstallTheme() {
         final String uriStr = prefs.getString("theme_uri", "");
-        final String stamp = new java.text.SimpleDateFormat("yyyyMMdd-HHmmss",
-                java.util.Locale.US).format(new java.util.Date());
         setLog("最近操作：正在校验并补齐 .theme…");
-        exec.execute(new Runnable() {
+        submit(new Runnable() {
             @Override
             public void run() {
                 String message;
@@ -2596,23 +2643,27 @@ public class MainActivity extends Activity {
                     String cfgText = "";
                     if (rootReady) { try { cfgText = RootShell.shell("cat /data/theme/config 2>/dev/null", 10000).out; } catch (Throwable ignored) { } }
                     int packs = buildPacks(cache, cfgText);
+                    if (packs == 0) throw new java.io.IOException("没有可发布的主题包");
                     ShellRunner.Result sync = sh(
-                            "mkdir -p /data/local/tmp/mctga-packs && "
-                                    + "chmod 755 /data/local/tmp/mctga-packs && "
-                                    + "cp -f " + getFilesDir().getAbsolutePath() + "/theme-packs/* "
-                                    + "/data/local/tmp/mctga-packs/ 2>/dev/null; "
-                                    + "chmod 644 /data/local/tmp/mctga-packs/* 2>/dev/null; "
-                                    + "ls /data/local/tmp/mctga-packs | wc -l", 30000,
+                            "set -e\nmkdir -p /data/local/tmp/mctga-packs\n"
+                                    + "chmod 755 /data/local/tmp/mctga-packs\n"
+                                    + "cp -f " + shq(new File(getFilesDir(), "theme-packs").getAbsolutePath())
+                                    + "/* /data/local/tmp/mctga-packs/\n"
+                                    + "chmod 644 /data/local/tmp/mctga-packs/*\n"
+                                    + "echo RESULT:PACKS_COPIED\n", 30000,
                             !rootReady && ShizukuBridge.granted());
+                    if (!sync.ok() || !sync.out.contains("RESULT:PACKS_COPIED"))
+                        throw new java.io.IOException("本地包已生成，但发布未确认: " + sync.text());
                     if (rootReady) {
-                        RootShell.shell("am force-stop com.android.contacts; am force-stop com.android.mms", 15000);
+                        ShellRunner.Result stoppedApps = RootShell.shell("am force-stop com.android.contacts && am force-stop com.android.mms", 15000);
+                        if (!stoppedApps.ok()) throw new java.io.IOException("资源已发布，目标应用停止未确认: " + stoppedApps.text());
                     }
                     if (packs == 0) {
                         message = "没解出可用的主题包，未写入";
                         detail = "";
                     } else {
-                        message = "已写入应用数据目录 " + packs + " 个包";
-                        detail = "未修改 /data/theme；" + (rootReady ? "已重启联系人 / 短信" : "请手动重启联系人 / 短信");
+                        message = "已准备主题资源：" + packs + " 个包";
+                        detail = "未修改 /data/theme；" + (rootReady ? "已停止联系人 / 短信，下次打开加载资源" : "请手动重启联系人 / 短信");
                     }
                 } catch (Throwable t) {
                     prefs.edit().putString("last_error", String.valueOf(t)).apply();
@@ -2637,15 +2688,7 @@ public class MainActivity extends Activity {
 
     /** 从「V17.0.0」这种 ROM 版本得出 17000 形式的 OS 代号。 */
     private int osCode() {
-        try {
-            String s = (String) Class.forName("android.os.SystemProperties")
-                    .getMethod("get", String.class).invoke(null, "ro.build.version.oplusrom");
-            java.util.regex.Matcher m = java.util.regex.Pattern
-                    .compile("V(\\d+)\\.").matcher(s == null ? "" : s);
-            if (m.find()) return Integer.parseInt(m.group(1)) * 1000;
-        } catch (Throwable ignored) {
-        }
-        return 0;
+        return OsVersion.major() * 1000;
     }
 
     /** 从商店写的 config 里取本机 OS 的变体：正式包名 -> 变体成员名。 */
@@ -2878,11 +2921,11 @@ public class MainActivity extends Activity {
 
     private void oneKey() {
         if (!rootReady) {
-            showDarkChannelHint("一键生效要重启其它应用和 SystemUI");
+            showDarkChannelHint("停止适配应用并重启 SystemUI");
             return;
         }
         toast("正在检查主题…");
-        exec.execute(new Runnable() {
+        submit(new Runnable() {
             @Override
             public void run() {
                 ShellRunner.Result probe = RootShell.shell(
@@ -2898,16 +2941,16 @@ public class MainActivity extends Activity {
                     return;
                 }
                 ShellRunner.Result stop = RootShell.shell(forceStopScript(), 25000);
-                final boolean ok = !stop.timedOut;
+                final boolean ok = stop.ok();
                 post(new Runnable() {
                     @Override
                     public void run() {
                         if (ok) {
-                            setLog("最近操作：一键生效完成，界面已重启");
-                            toast("已重启适配应用与 SystemUI");
+                            setLog("最近操作：停止适配应用及重启 SystemUI 的命令已执行；请重新打开应用检查效果。");
+                            toast("命令已执行。请重新打开目标应用，检查资源是否生效。");
                         } else {
-                            setLog("最近操作：重启命令超时，结果未确认");
-                            toast("重启命令超时");
+                            setLog("最近操作：重启未确认\n" + stop.text());
+                            toast("重启未确认，请查看诊断");
                         }
                         refresh();
                     }
@@ -2938,11 +2981,11 @@ public class MainActivity extends Activity {
 
     /** 深色适配靠 LSPosed 生效；只有开关写系统设置 / 重启应用才需要特权。 */
     private void showDarkChannelHint(String why) {
-        showHint("深色适配不需要在这里开 Root",
-                "深色适配是 LSPosed 模块，在目标应用进程里生效，和 Root 无关。\n\n"
-                        + "只有「" + why + "」这一步要 Root 或 Shizuku。\n\n"
-                        + "没有特权也能用：LSPosed 里勾好作用域后，手动结束目标应用或重启手机即可生效。",
-                "深色适配由 LSPosed 生效；" + why + " 需要 Root 或 Shizuku");
+        showHint("检查深色适配权限",
+                "深色适配需要 Root、已启用的 LSPosed 模块及正确作用域，并且系统已应用主题。\n\n"
+                        + "当前操作：" + why + "。请检查所需权限与服务状态。\n\n"
+                        + "权限恢复后，请结束并重新打开目标应用。无有效主题时，模块保留原生界面。",
+                "请检查 Root 和 LSPosed；" + why + " 需要 Root 或 Shizuku");
     }
 
     // ================================================================ 深色适配开关
@@ -2964,14 +3007,13 @@ public class MainActivity extends Activity {
             showDarkChannelHint("切换开关要写 Settings.Global");
             return;
         }
-        // 密码只在“连点版本号解锁”那一步要，进来之后开关直接切
         applyDarkToggle(!darkOn());
     }
 
     private void applyDarkToggle(final boolean next) {
         final boolean viaShizuku = useShizukuChannel();
         toast(next ? "正在开启深色适配…" : "正在关闭深色适配…");
-        exec.execute(new Runnable() {
+        submit(new Runnable() {
             @Override
             public void run() {
                 final ShellRunner.Result r = sh("settings put global mctga_dark_attach "
@@ -3045,9 +3087,9 @@ public class MainActivity extends Activity {
             intent.setPackage("moe.shizuku.privileged.api");
             intent.putExtra("data", bundle);
             sendBroadcast(intent);
-            if (!silent) toast("已发送广播请求 binder");
+            if (!silent) toast("已请求连接 Shizuku 服务。");
         } catch (Throwable t) {
-            if (!silent) toast("广播请求失败：" + t);
+            if (!silent) toast("连接 Shizuku 服务失败：" + t);
         }
     }
 
@@ -3055,11 +3097,11 @@ public class MainActivity extends Activity {
         if (!canShowDialog()) return;
         new AlertDialog.Builder(this)
                 .setTitle("需要 Shizuku 授权")
-                .setMessage("Shizuku 提供的是 shell 身份，pm 操作够用；"
-                        + "要读写 Android/data 需要无线调试/ADB 启动的 Shizuku。\n\n"
-                        + "1 启动 Shizuku（Android 11+ 用无线调试）\n"
-                        + "2 在 Shizuku 里允许 MCTGA\n"
-                        + "3 回到这里刷新状态")
+                .setMessage("主题常驻可通过 Shizuku 执行，"
+                        + "能否访问商店目录取决于系统和服务启动方式。\n\n"
+                        + "1. 在 Shizuku 中通过无线调试或 ADB 启动服务。\n"
+                        + "2. 允许 MCTGA 使用 Shizuku。\n"
+                        + "3. 返回 MCTGA，刷新状态。")
                 .setPositiveButton("打开 Shizuku", new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface d, int w) {
@@ -3109,7 +3151,7 @@ public class MainActivity extends Activity {
     private void showDiagnostics() {
         final boolean viaShizuku = useShizukuChannel();
         toast("正在收集诊断…");
-        exec.execute(new Runnable() {
+        submit(new Runnable() {
             @Override
             public void run() {
                 final ShellRunner.Result r = sh(DIAG_SCRIPT, 30000, viaShizuku);
@@ -3135,19 +3177,19 @@ public class MainActivity extends Activity {
                 sb.append("设备代号：").append(android.os.Build.DEVICE).append("\n");
                 sb.append("版本名称：").append(OsVersion.prop("ro.build.display.id")).append("\n");
                 sb.append("系统：").append(osVersion()).append('\n');
-                sb.append("支持：").append(OsVersion.supported() ? "ColorOS 17" : "不支持").append('\n');
+                sb.append("系统门槛：").append(OsVersion.supported() ? "符合要求" : "不支持").append('\n');
                 sb.append("Root：").append(rootReady ? "可用" : "不可用").append('\n');
                 sb.append("Shizuku：").append(ShizukuBridge.state()).append('\n');
                 sb.append("LSPosed：").append(hookChecked
-                        ? (hookUnknown ? "无法确认（没有 Root / Shizuku）"
+                        ? (hookUnknown ? "未确认（请检查 Root 授权）"
                         : (hookReady ? "运行中" : "未运行")) : "检测中").append('\n');
                 sb.append("通道：").append(channelText)
                         .append('（').append(viaShizuku ? "Shizuku" : "Root").append("）\n");
                 sb.append("深色开关：").append(darkOn() ? "已开启" : "已关闭").append('\n');
                 sb.append("商店：").append(storePkg.isEmpty() ? "未确定" : storePkg).append('\n');
                 sb.append("商店状态：").append(storeSuspendedKnown
-                        ? (storeSuspended ? "已挂起" : "正常") : "未知").append('\n');
-                sb.append("Themes：").append(themesState).append('\n');
+                        ? (storeSuspended ? "已冻结" : "正常") : "未知").append('\n');
+                sb.append("锁定目录：").append(themesState).append('\n');
                 sb.append("主题文件：").append(prefs.getString("theme_name", "无")).append('\n');
                 String le = prefs.getString("last_error", "");
                 if (!le.isEmpty()) sb.append("最近错误：").append(le).append('\n');
@@ -3267,12 +3309,12 @@ public class MainActivity extends Activity {
         t.setText("MCTGA\nMake ColorOS Themes Great Again\n\n"
                 + "版本 " + ver() + "（versionCode " + vcode() + "）\n"
                 + "包名 xwdy.deepseek.test\n\n"
-                + "两件事合在一个应用里：\n"
-                + "· 深色模式主题适配（LSPosed，20 个作用域包）\n"
-                + "· 主题常驻防护（锁定商店，挡住试用到期恢复）\n\n"
-                + "仅支持 ColorOS 11 及以上；非 ColorOS 设备全部功能停用。\n\n"
-                + "身份：Shizuku 做 pm 操作；读写 Android/data 需要 Shizuku（无线调试）"
-                + "或 Root；部分环境下 su 会被隐藏，Root 功能可能不可用。");
+                + "功能\n"
+                + "· 深色适配：通过 LSPosed 加载主题资源，需启用模块并选择作用域。\n"
+                + "· 主题常驻：限制商店运行与缓存写入，以阻止试用到期恢复。\n\n"
+                + "系统门槛为 ColorOS 11+ / realme UI 2.0+。具体兼容性取决于系统及应用版本。\n\n"
+                + "主题常驻需要可用的 Shizuku 或 Root 通道；深色适配需要 Root 与 LSPosed。"
+                + "无有效主题时不注入背景。本应用不提供主题素材。");
         box.addView(t);
 
         // 相关链接
@@ -3411,13 +3453,13 @@ public class MainActivity extends Activity {
         root.addView(cloudNotice);
     }
 
-    /** 轻档云控：拉一次 cloud.json，只做提示，失败静默。 */
+    /** 拉取已验签云控；更新提示/版本停用策略保持不变，失败静默。 */
     private void loadCloud() {
         if (!Cloud.enabled()) return;
-        Cloud.fetch(new Cloud.Callback() {
+        Cloud.fetch(MainActivity.this, new Cloud.Callback() {
             @Override
             public void onResult(Cloud.Info info) {
-                if (info == null) return;
+                if (stopped || isDestroyed() || info == null) return;
                 if (info.notice != null && info.notice.length() > 0 && cloudNotice != null) {
                     cloudNotice.setText(info.notice);
                     cloudNotice.setVisibility(View.VISIBLE);
@@ -3434,18 +3476,18 @@ public class MainActivity extends Activity {
                 if (blocked) {
                     showCloudBlocked(info);
                 } else if (info.minVersionCode > 0 && cur < info.minVersionCode) {
-                    showCloudUpdate(info, false);
+                    showCloudUpdate(info);
                 }
             }
         });
     }
 
-    private void showCloudUpdate(final Cloud.Info info, boolean blocked) {
-        if (!canShowDialog()) return;
-        String title = blocked ? "此版本已停用" : "需要更新";
+    private void showCloudUpdate(final Cloud.Info info) {
+        if (!canShowDialog()) { pendingCloudDialog = info; return; }
+        String title = "需要更新";
         String msg = info.notice != null && info.notice.length() > 0
                 ? info.notice
-                : (blocked ? "当前版本已被停用，请下载新版本。" : "当前版本过旧，请下载新版本。");
+                : "当前版本过旧，请下载新版本。";
         AlertDialog.Builder b = new AlertDialog.Builder(this)
                 .setTitle(title)
                 .setMessage(msg)
@@ -3468,6 +3510,7 @@ public class MainActivity extends Activity {
 
     /** 版本被停用：拦住整个界面，只能退出。 */
     private boolean cloudBlocked;
+    private Cloud.Info pendingCloudDialog;
 
     @Override
     public void onBackPressed() {
@@ -3477,7 +3520,7 @@ public class MainActivity extends Activity {
 
     private void showCloudBlocked(final Cloud.Info info) {
         cloudBlocked = true;
-        if (isFinishing()) return;
+        if (!canShowDialog()) { pendingCloudDialog = info; return; }
         String msg = info.notice != null && info.notice.length() > 0
                 ? info.notice
                 : "当前版本已被停用，请下载新版本后再使用。";
@@ -3498,36 +3541,42 @@ public class MainActivity extends Activity {
 
     /** 把云控停用状态写成系统属性，供 Hook 在目标应用进程里判断（Hook 读属性不需要上下文）。 */
     private void writeCloudBlockFlag(final boolean blocked) {
-        exec.execute(new Runnable() {
+        submit(new Runnable() {
             @Override
             public void run() {
                 try {
-                    RootShell.shell("setprop persist.mctga.cloud_block " + (blocked ? "1" : "0"), 8000);
+                    if (!writeBooleanProperty("persist.mctga.cloud_block", blocked))
+                        android.util.Log.w("MCTGA", "cloud block write not confirmed");
                 } catch (Throwable ignored) {
                 }
             }
         });
     }
 
+    private boolean writeBooleanProperty(String key, boolean value) {
+        String want = value ? "1" : "0";
+        ShellRunner.Result r = RootShell.shell("setprop " + shq(key) + " " + want
+                + " && getprop " + shq(key), 8000);
+        return r.ok() && want.equals(r.out.trim());
+    }
+
     private String systemUiRestartText() {
-        return "切换深浅色时自动重启 SystemUI："
+        return "切换深浅色时重启 SystemUI（可能黑屏）："
                 + ("1".equals(OsVersion.prop("persist.mctga.systemui_restart")) ? "开" : "关");
     }
 
     /** 由用户决定切深浅色时要不要重启 SystemUI（重启会让配置/背景立刻生效，但会黑屏一下）。 */
     private void toggleSystemUiRestart() {
         final boolean next = !"1".equals(OsVersion.prop("persist.mctga.systemui_restart"));
-        exec.execute(new Runnable() {
+        submit(new Runnable() {
             @Override
             public void run() {
-                try {
-                    RootShell.shell("setprop persist.mctga.systemui_restart " + (next ? "1" : "0"), 8000);
-                } catch (Throwable ignored) {
-                }
+                final boolean confirmed = writeBooleanProperty("persist.mctga.systemui_restart", next);
                 post(new Runnable() {
                     @Override
                     public void run() {
                         if (btnRestart != null) btnRestart.setText(systemUiRestartText());
+                        if (!confirmed) { toast("写入未确认，开关显示实际状态"); return; }
                         toast(next ? "已开启：切深浅色会重启 SystemUI（会黑屏一下）"
                                 : "已关闭：切深浅色不再重启 SystemUI");
                     }

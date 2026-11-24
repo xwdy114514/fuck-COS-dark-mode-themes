@@ -38,7 +38,7 @@ public final class ShizukuBridge {
 
     public static String state() {
         try {
-            if (!Shizuku.pingBinder()) return "服务未连接（先启动 Shizuku）";
+            if (!Shizuku.pingBinder()) return "未连接（请先启动服务）";
             if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) return "已授权";
             return "未授权";
         } catch (Throwable t) {

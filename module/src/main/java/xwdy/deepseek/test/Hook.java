@@ -20,6 +20,20 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
     private static Drawable sBg;
     private static String sBgKey;
 
+    /** Never let stale supplements or a downloaded theme enable injection on the default theme. */
+    private static boolean appliedThemeReady() {
+        if (AppliedTheme.active()) return true;
+        sBg = null;
+        sBgKey = null;
+        if (sThemeZip != null) {
+            try { sThemeZip.close(); } catch (Exception ignored) { }
+            sThemeZip = null;
+            sThemeZipPath = null;
+            sThemeZipMtime = 0;
+        }
+        return false;
+    }
+
     private static final String[] HOOK_BG = {
             "com.coloros.alarmclock",
             "com.coloros.soundrecorder",
@@ -69,7 +83,7 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
 
     /**
      * 只支持 ColorOS 11 及以上（含 11）。版本串由 OsVersion 解析，
-     * 先走模块自己的 C 解析，退化到 shell。解析不出来按不支持处理。
+     * 统一使用纯 Java 版本解析。解析不出来按不支持处理。
      */
     private static Boolean sOsSupported;
 
@@ -129,6 +143,7 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
     private static final String PACK_DIR = "/data/local/tmp/mctga-packs/";
 
     private static String packBaseDir(String pkg) {
+        if (!appliedThemeReady()) return null;
         try {
             java.io.File f = new java.io.File(PACK_DIR, pkg);
             if (f.isFile() && f.length() > 0) return PACK_DIR;
@@ -170,35 +185,8 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
         return false;
     }
 
-    private static boolean isBarId(String ln) {
-        return ln.contains("appbar") || ln.contains("toolbar")
-                || ln.contains("header") || ln.contains("statusbar")
-                || ln.endsWith("/abl") || ln.contains("app_bar")
-                || ln.contains("action_bar") || ln.contains("title_bar");
-    }
-
-    /** 把 appbar / toolbar / header / statusbar 这类顶部条的背景清空，让插画透出来。 */
-    private static void clearBarViews(android.view.View v, int depth) {
-        if (v == null || depth > 24) return;
-        try {
-            int id = v.getId();
-            if (id != android.view.View.NO_ID) {
-                String n = v.getResources().getResourceName(id);
-                if (n != null) {
-                    String ln = n.toLowerCase();
-                    if (isBarId(ln)) v.setBackground(null);
-                }
-            }
-            if (v instanceof android.view.ViewGroup) {
-                android.view.ViewGroup g = (android.view.ViewGroup) v;
-                int c = g.getChildCount();
-                for (int i = 0; i < c; i++) clearBarViews(g.getChildAt(i), depth + 1);
-            }
-        } catch (Throwable ignored) {
-        }
-    }
-
     private static void clearNow(Object decor) {
+        if (!appliedThemeReady()) return;
         try {
             int[] ids = {0x7f0b0112, 0x7f0b0340, 0x7f0b0f97};
             for (int id : ids) {
@@ -206,22 +194,6 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
                 if (v != null) {
                     XposedHelpers.callMethod(v, "setBackground", new Object[]{null});
                 }
-            }
-        } catch (Throwable ignored) {
-        }
-    }
-
-    private static void clearTree(Object v, int depth) {
-        if (v == null || depth > 12) return;
-        try {
-            XposedHelpers.callMethod(v, "setBackground", new Object[]{null});
-        } catch (Throwable ignored) {
-        }
-        try {
-            int n = (int) XposedHelpers.callMethod(v, "getChildCount");
-            for (int i = 0; i < n; i++) {
-                Object c = XposedHelpers.callMethod(v, "getChildAt", i);
-                clearTree(c, depth + 1);
             }
         } catch (Throwable ignored) {
         }
@@ -270,7 +242,6 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
     private static final String BG_DAY_ALT = "res/drawable-xxhdpi/coui_window_background_selector.9.png";
     private static final String BG_NIGHT_ALT = "res/drawable-night-xxhdpi/coui_window_background_selector.9.png";
 
-    private static String sCurPkg;
 
     /** 蒙层：深色直接放行（主题的 night 图本身就是深色底），亮色叠 60% 白，缓解插画与文字冲突；不改主题包。 */
     private static final int MASK_DAY = 0x99FFFFFF;   // 60% 白
@@ -334,6 +305,7 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
         XC_MethodHook h = new XC_MethodHook() {
             @Override
             protected void afterHookedMethod(MethodHookParam p) {
+                if (!appliedThemeReady()) return;
                 try {
                     Object r = p.getResult();
                     if (!(r instanceof Drawable)) return;
@@ -388,19 +360,20 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
         }
     }
 
-    private static Drawable loadBg(Context c) {
+    private static Drawable loadBg(Context c, String pkg) {
+        if (!appliedThemeReady()) return null;
         try {
             boolean night = isNight();
             String main = night ? BG_NIGHT : BG_DAY;
             String alt = night ? BG_NIGHT_ALT : BG_DAY_ALT;
-            String cand = (sCurPkg == null ? "" : sCurPkg) + ":" + main;
+            String cand = (pkg == null ? "" : pkg) + ":" + main;
             if (sBg != null && cand.equals(sBgKey)) return sBg;
-            Bitmap bm = loadFromPacks(sCurPkg, main, alt);
+            Bitmap bm = loadFromPacks(pkg, main, alt);
             if (bm == null) {
-                log("bg missing " + main + " pkg=" + sCurPkg);
+                log("bg missing " + main + " pkg=" + pkg);
                 return null;
             }
-            log("bg ok " + bm.getWidth() + "x" + bm.getHeight() + " pkg=" + sCurPkg);
+            log("bg ok " + bm.getWidth() + "x" + bm.getHeight() + " pkg=" + pkg);
             sBg = withMask(new BitmapDrawable(c.getResources(), bm), night);
             sBgKey = cand;
             return sBg;
@@ -412,12 +385,10 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
 
     /** 先找本应用自己的主题包（系统 /data/theme → .theme 源文件 → 缓存），取不到再扫其它包。 */
     private static Bitmap loadFromPacks(String pkg, String entry, String alt) {
-        java.io.File own = null;
         if (pkg != null) {
             java.io.File sys = new java.io.File("/data/theme/" + pkg);
             Bitmap bm = readPackFor(sys, entry, alt);
             if (bm != null) {
-                own = sys;
                 log("bg from system " + pkg + " " + entry);
                 return bm;
             }
@@ -429,7 +400,6 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
             java.io.File cache = new java.io.File(PACK_DIR, pkg);
             bm = readPackFor(cache, entry, alt);
             if (bm != null) {
-                own = cache;
                 log("bg from cache " + pkg + " " + entry);
                 return bm;
             }
@@ -441,7 +411,6 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
         if (ts != null) for (java.io.File f : ts) if (f.isFile()) packs.add(f);
         for (String e : new String[]{entry, alt}) {
             for (java.io.File pack : packs) {
-                if (own != null && pack.getAbsolutePath().equals(own.getAbsolutePath())) continue;
                 Bitmap bm2 = readZipEntry(pack, e);
                 if (bm2 != null) {
                     log("bg from " + pack.getName() + " " + e);
@@ -482,6 +451,7 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
         XposedBridge.hookAllMethods(android.app.Activity.class, "onResume", new XC_MethodHook() {
             @Override
             protected void afterHookedMethod(MethodHookParam p) {
+                if (!appliedThemeReady()) return;
                 try {
                     android.app.Activity act = (android.app.Activity) p.thisObject;
                     String cls = act.getComponentName().getClassName();
@@ -491,7 +461,7 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
                     }
                     Window w = act.getWindow();
                     if (w == null) return;
-                    Drawable d = loadBg(act);
+                    Drawable d = loadBg(act, lp.packageName);
                     if (d == null) {
                         log("onResume bg=null act=" + cls);
                         return;
@@ -499,12 +469,12 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
                     final android.view.View decor = w.getDecorView();
                     if (decor == null) return;
                     final String pkg = lp.packageName;
-                    sCurPkg = pkg;
                     decor.setBackground(d);
                     applyAlarmFix(decor, pkg, false);
                     decor.postDelayed(new Runnable() {
                         @Override
                         public void run() {
+                                if (!appliedThemeReady()) return;
                             try {
                                 applyAlarmFix(decor, pkg, false);
                             } catch (Throwable ignored) {
@@ -514,6 +484,7 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
                     decor.postDelayed(new Runnable() {
                         @Override
                         public void run() {
+                                if (!appliedThemeReady()) return;
                             try {
                                 applyAlarmFix(decor, pkg, false);
                             } catch (Throwable ignored) {
@@ -703,12 +674,13 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
     }
 
     private static void applyAlarmFix(android.view.View decor, String pkg, boolean dump) {
+        if (!appliedThemeReady()) return;
         try {
             clearBg(decor, isDeep(pkg) ? 40 : 10);
             int cleared = clearScrims(decor, pkg);
             hideNoise(decor, pkg);
-            dumpLoadingViews(decor, 0);
-            Drawable bgX = loadBg(decor.getContext());
+            if (debugOn()) dumpLoadingViews(decor, 0);
+            Drawable bgX = loadBg(decor.getContext(), pkg);
             if (bgX != null) decor.setBackground(bgX);
             logv("alarm fix pass dump=" + dump + " cleared=" + cleared);
             if (dump) {
@@ -849,6 +821,10 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
             if (t.equals(lp.packageName)) { hit = true; break; }
         }
         if (!hit) return;
+        if (!appliedThemeReady()) {
+            log("skip: no applied application theme; cached/source artwork ignored pkg=" + lp.packageName);
+            return;
+        }
 
         // 深色适配是附加功能：界面关掉后不再挂任何 hook，进程完全走系统默认逻辑。
         if (!darkAttachEnabled()) {
@@ -880,6 +856,7 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
             XC_MethodHook clear = new XC_MethodHook() {
                 @Override
                 protected void afterHookedMethod(MethodHookParam p) {
+                if (!appliedThemeReady()) return;
                     try {
                         Object activity = p.thisObject;
                         Object window = XposedHelpers.callMethod(activity, "getWindow");
@@ -888,6 +865,7 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
                         Runnable r = new Runnable() {
                             @Override
                             public void run() {
+                                if (!appliedThemeReady()) return;
                                 clearNow(decor);
                             }
                         };
@@ -921,6 +899,7 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
                     new XC_MethodHook() {
                         @Override
                         protected void afterHookedMethod(MethodHookParam p) {
+                if (!appliedThemeReady()) return;
                             Object res = p.getResult();
                             if (res == null) return;
                             try {
@@ -969,6 +948,7 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
                     new XC_MethodHook() {
                         @Override
                         protected void beforeHookedMethod(MethodHookParam p) {
+                if (!appliedThemeReady()) return;
                             rewriteZip(p, 1);
                         }
                     });
@@ -985,6 +965,7 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
                     new XC_MethodHook() {
                         @Override
                         protected void beforeHookedMethod(MethodHookParam p) {
+                if (!appliedThemeReady()) return;
                             rewriteZip(p, 1);
                         }
                     });
@@ -1004,6 +985,7 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
                 XposedBridge.hookAllMethods(at, "handleConfigurationChanged", new XC_MethodHook() {
                     @Override
                     protected void afterHookedMethod(MethodHookParam p) {
+                if (!appliedThemeReady()) return;
                         try {
                             if (p.args == null || p.args.length == 0 || p.args[0] == null) return;
                             Object cfg = p.args[0];
@@ -1020,6 +1002,7 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
                                     new Thread(new Runnable() {
                                         @Override
                                         public void run() {
+                                if (!appliedThemeReady()) return;
                                             try {
                                                 Thread.sleep(1200L);
                                             } catch (Throwable ignored) {
@@ -1041,6 +1024,7 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
             XC_MethodHook colorHook = new XC_MethodHook() {
                 @Override
                 protected void afterHookedMethod(MethodHookParam p) {
+                if (!appliedThemeReady()) return;
                     if (isNight()) return;
                     try {
                         if (sScrimId == -1) {
@@ -1079,11 +1063,11 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
         XposedBridge.hookAllMethods(android.app.Activity.class, "onResume", new XC_MethodHook() {
             @Override
             protected void afterHookedMethod(MethodHookParam p) {
+                if (!appliedThemeReady()) return;
                 try {
                     android.app.Activity act = (android.app.Activity) p.thisObject;
                     Window w = act.getWindow();
                     if (w == null) return;
-                    sCurPkg = lp.packageName;
                     int solid = isNight() ? 0xFF15121A : 0xFFF6F3F8;
                     Drawable d = new android.graphics.drawable.ColorDrawable(solid);
                     if (d == null) return;
@@ -1111,6 +1095,7 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
         XposedBridge.hookAllMethods(android.app.Activity.class, "onResume", new XC_MethodHook() {
             @Override
             protected void afterHookedMethod(MethodHookParam p) {
+                if (!appliedThemeReady()) return;
                 try {
                     android.app.Activity act = (android.app.Activity) p.thisObject;
                     Window w = act.getWindow();
@@ -1126,12 +1111,13 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
                     }
                     // 拨号页背景：交给主题资源（loadBg 读主题包），模块不再内置任何素材
                     if (act.getComponentName().getClassName().contains("Dialtacts")) {
-                        Drawable contactBg = loadBg(act);
+                        Drawable contactBg = loadBg(act, lp.packageName);
                         if (contactBg != null) decor.setBackground(contactBg);
                     }
                     Runnable r = new Runnable() {
                         @Override
                         public void run() {
+                                if (!appliedThemeReady()) return;
                             try {
                                 fixDialpad(decor);
                             } catch (Throwable ignored) {
@@ -1197,18 +1183,6 @@ public class Hook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
         if (v instanceof android.view.ViewGroup) {
             android.view.ViewGroup g = (android.view.ViewGroup) v;
             for (int i = 0; i < g.getChildCount(); i++) fixDialpad(g.getChildAt(i));
-        }
-    }
-
-    private static void clearBgAll(android.view.View v) {
-        if (v == null) return;
-        try {
-            v.setBackground(null);
-        } catch (Throwable ignored) {
-        }
-        if (v instanceof android.view.ViewGroup) {
-            android.view.ViewGroup g = (android.view.ViewGroup) v;
-            for (int i = 0; i < g.getChildCount(); i++) clearBgAll(g.getChildAt(i));
         }
     }
 

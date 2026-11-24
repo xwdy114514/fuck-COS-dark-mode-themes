@@ -1,11 +1,7 @@
 package xwdy.deepseek.cloud;
 
 import android.app.Activity;
-import android.app.AlertDialog;
-import android.content.DialogInterface;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
 import android.text.InputType;
 import android.view.View;
 import android.view.ViewGroup;
@@ -21,19 +17,24 @@ import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
 /**
- * MCTGA 云控编辑器：读/写服务器上的 cloud.json（8081）。
- * 读是公开的；写要 Basic 认证（账号 mctga）。
+ * MCTGA 云控编辑器：读服务器上的 cloud.json，改完**本机签名**再上传。
+ *
+ * 0.5.4 起客户端会验签（ECDSA P-256）+ 校验 seq 单调，所以不能再直接 PUT 原文：
+ * 直接 PUT 会把 sig 抹掉，新客户端会把整份配置当无效丢掉。
+ * 现在的流程是「保存内容 → 交给本机脚本 tools/sign-cloud.sh 签名并上传」，
+ * 脚本需要 root（su），签名私钥只在本机、不在 APK 里。
  */
 public class MainActivity extends Activity {
 
     private static final String URL_CLOUD = "http://mc.nyafish.top:8081/cloud.json";
-    private static final String AUTH = "mctga:MeiYou520";
+    /** 本机工作树里的配置与签名脚本（签名私钥在 /data/local/tmp/ws/keys/cloud.key）。 */
+    private static final String WORK_CLOUD = "/storage/emulated/0/MCTGA/cloud.json";
+    private static final String SIGN_SH = "/storage/emulated/0/MCTGA/tools/sign-cloud.sh";
 
     private EditText etMin, etBlocked, etNotice, etUrl;
     private TextView tvStatus;
@@ -54,12 +55,14 @@ public class MainActivity extends Activity {
 
         TextView hint = new TextView(this);
         hint.setTextSize(11.5f);
-        hint.setText(URL_CLOUD + "\n读：公开；写：Basic 认证 mctga");
+        hint.setText(URL_CLOUD
+                + "\n读取：公开。发布：本机签名（需要 root 授权）→ 自动上传。"
+                + "\n客户端 0.5.4 起会验签，别再直接 PUT 原文。");
         hint.setPadding(0, dp(6), 0, dp(10));
         root.addView(hint);
 
-        etMin = field(root, "最低版本号（versionCode，低于会提示更新，0 表示不限）", "200", false);
-        etBlocked = field(root, "禁用版本号（逗号分隔，命中会提示已停用）", "203,205", false);
+        etMin = field(root, "最低版本号（versionCode，低于会提示更新，0 表示不限）", "221", false);
+        etBlocked = field(root, "禁用版本号（逗号分隔，命中会提示已停用）", "", false);
         etNotice = field(root, "公告（显示在主界面标题下，留空则不显示）", "", true);
         etUrl = field(root, "更新下载地址（可留空）", "", false);
 
@@ -73,7 +76,7 @@ public class MainActivity extends Activity {
             }
         });
         Button btnSave = new Button(this);
-        btnSave.setText("发布");
+        btnSave.setText("签名并发布");
         btnSave.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 save();
@@ -148,11 +151,23 @@ public class MainActivity extends Activity {
                             return;
                         }
                         fill(b);
-                        status("已读取");
+                        status("已读取" + seqInfo(b));
                     }
                 });
             }
         }).start();
+    }
+
+    /** 读出服务器当前 seq 与是否有签名，用来给状态栏加信息。 */
+    private String seqInfo(String body) {
+        try {
+            JSONObject o = new JSONObject(body);
+            int seq = o.optInt("seq", 0);
+            String sig = o.optString("sig", "");
+            return "（seq=" + seq + (sig.length() > 0 ? "，有签名" : "，无签名⚠") + "）";
+        } catch (Throwable t) {
+            return "";
+        }
     }
 
     private void fill(String body) {
@@ -194,42 +209,98 @@ public class MainActivity extends Activity {
             toast("生成 JSON 失败：" + t);
             return;
         }
-        final String payload = json;
-        status("发布中…");
+        publish(json);
+    }
+
+    /**
+     * 把内容写到本机工作树，再调签名脚本（签名 + seq+1 + PUT）。
+     * 脚本内部会先读服务器当前 seq 再 +1，所以这里不用管 seq。
+     */
+    private void publish(final String json) {
+        status("签名并发布中…（可能弹 root 授权）");
         new Thread(new Runnable() {
             public void run() {
-                String err = null;
-                int code = 0;
+                String b64 = android.util.Base64.encodeToString(
+                        json.getBytes(StandardCharsets.UTF_8), android.util.Base64.NO_WRAP);
+                String cmd = "echo " + b64 + " | base64 -d > " + WORK_CLOUD
+                        + " && sh " + SIGN_SH + " --upload";
+                String out = "";
+                boolean ok = false;
                 try {
-                    HttpURLConnection c = (HttpURLConnection) new URL(URL_CLOUD).openConnection();
-                    c.setConnectTimeout(8000);
-                    c.setReadTimeout(8000);
-                    c.setRequestMethod("PUT");
-                    c.setDoOutput(true);
-                    c.setRequestProperty("Content-Type", "application/json");
-                    c.setRequestProperty("Authorization", "Basic " + basic(AUTH));
-                    OutputStream os = c.getOutputStream();
-                    os.write(payload.getBytes(StandardCharsets.UTF_8));
-                    os.close();
-                    code = c.getResponseCode();
-                    c.disconnect();
+                    Process pr = startSu(cmd);
+                    ByteArrayOutputStream bo = new ByteArrayOutputStream();
+                    InputStream in = pr.getInputStream();
+                    byte[] buf = new byte[2048];
+                    int n;
+                    while ((n = in.read(buf)) > 0) bo.write(buf, 0, n);
+                    in.close();
+                    ok = pr.waitFor() == 0;
+                    out = new String(bo.toByteArray(), StandardCharsets.UTF_8).trim();
                 } catch (Throwable t) {
-                    err = t.toString();
+                    out = t.toString();
                 }
-                final int codeF = code;
-                final String errF = err;
+                final boolean okF = ok;
+                final String outF = out;
                 runOnUiThread(new Runnable() {
                     public void run() {
-                        if (codeF >= 200 && codeF < 300) {
-                            status("已发布（HTTP " + codeF + "）");
-                            toast("已发布");
-                        } else {
-                            status("发布失败：" + (errF != null ? errF : "HTTP " + codeF));
+                        if (okF) {
+                            status("已签名并上传\n" + outF);
+                            toast("已发布（已签名）");
+                            load();
+                            return;
                         }
+                        // 没有 root 授权：把内容落到本应用的外部目录，再把命令塞进剪贴板，
+                        // 用户用 MT管理器/终端 粘一次就能签名上传（签名私钥只在构建机，不能进 APK）。
+                        String cmd = savePendingAndCommand(json);
+                        status("发布失败（拿不到 root）\n" + outF
+                                + "\n已保存到本应用目录，命令已复制到剪贴板：\n" + cmd);
                     }
                 });
             }
         }).start();
+    }
+
+    /**
+     * 起 root shell。不同 root 方案下 su 的位置不一样，Shizuku 还会把 su 从被注入进程的
+     * 命名空间里藏掉，所以跟主程序的 RootShell 一样逐路径试。
+     */
+    private Process startSu(String cmd) throws Exception {
+        String[] paths = {"/system/bin/su", "/debug_ramdisk/su", "/sbin/su", "su"};
+        Exception last = null;
+        for (String p : paths) {
+            try {
+                return new ProcessBuilder(p, "-c", cmd).redirectErrorStream(true).start();
+            } catch (Exception e) {
+                last = e;
+            }
+        }
+        throw last != null ? last : new java.io.IOException("su not found");
+    }
+
+    /**
+     * 兜底：把待发布的 JSON 写到本应用外部目录（不需要任何存储权限），
+     * 生成一条「复制过去 + 签名 + 上传」的命令并放进剪贴板，返回这条命令。
+     */
+    private String savePendingAndCommand(String json) {
+        String cmd;
+        try {
+            java.io.File dir = getExternalFilesDir(null);
+            java.io.File f = new java.io.File(dir, "cloud.json");
+            java.io.FileOutputStream fo = new java.io.FileOutputStream(f);
+            fo.write(json.getBytes(StandardCharsets.UTF_8));
+            fo.close();
+            cmd = "cp '" + f.getAbsolutePath() + "' " + WORK_CLOUD + " && sh " + SIGN_SH + " --upload";
+        } catch (Throwable t) {
+            cmd = "sh " + SIGN_SH + " --upload";
+        }
+        try {
+            android.content.ClipboardManager cm =
+                    (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("cloud.json", cmd));
+            toast("命令已复制到剪贴板");
+        } catch (Throwable ignored) {
+        }
+        return cmd;
     }
 
     private int parseInt(String s) {
@@ -247,10 +318,6 @@ public class MainActivity extends Activity {
         while ((n = in.read(b)) > 0) bo.write(b, 0, n);
         in.close();
         return new String(bo.toByteArray(), StandardCharsets.UTF_8);
-    }
-
-    private String basic(String s) {
-        return android.util.Base64.encodeToString(s.getBytes(StandardCharsets.UTF_8), android.util.Base64.NO_WRAP);
     }
 
     private int dp(int v) {
